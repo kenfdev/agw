@@ -11,3 +11,18 @@ agw build agw
 agw up agw
 agw attach agw
 ```
+
+## Diagnose workspace state
+
+Use doctor to see what a workspace needs next:
+
+```bash
+agw doctor agw --config "$AGW_TEST_CONFIG"
+agw doctor --all --config "$AGW_TEST_CONFIG"
+```
+
+The state-first TUI shows the same model:
+
+```bash
+agw tui --config "$AGW_TEST_CONFIG"
+```
