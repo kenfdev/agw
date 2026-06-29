@@ -95,6 +95,22 @@ func TestUpUsesDockerComposeUp(t *testing.T) {
 	}
 }
 
+func TestUpDetachedUsesDockerComposeUpDetached(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.UpDetached("/tmp/ws"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "up", "-d"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
 func TestDownUsesDockerComposeDown(t *testing.T) {
 	var got []string
 	cli := CLI{Exec: func(dir string, name string, args ...string) error {
@@ -106,6 +122,22 @@ func TestDownUsesDockerComposeDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"docker", "compose", "down"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestStopUsesDockerComposeStop(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.Stop("/tmp/ws"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "stop"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}

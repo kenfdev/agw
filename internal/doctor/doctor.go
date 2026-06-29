@@ -114,7 +114,11 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 		report.add("project mount", CheckPass, project.Name)
 	}
 
-	for _, attachment := range selectedNetworks(located.Definition) {
+	attachments := selectedNetworks(located.Definition)
+	if len(attachments) == 0 {
+		report.add("external networks", CheckPass, "none required")
+	}
+	for _, attachment := range attachments {
 		name := strings.TrimSpace(attachment.Name)
 		if name == "" {
 			return fail(&report, "external network", "selected network name must not be blank", "fix workspace definition", StateBroken)
@@ -133,7 +137,8 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 			continue
 		}
 		if !exists {
-			return fail(&report, "external network", fmt.Sprintf("external network %s not found", resolvedName), "create or select an existing Docker network", StateBroken)
+			next := fmt.Sprintf("start the base project services, then run agw start %s", report.WorkspaceID)
+			return fail(&report, "external network", fmt.Sprintf("external network %s not found", resolvedName), next, StateBroken)
 		}
 		report.add("external network", CheckPass, resolvedName)
 	}
@@ -154,13 +159,13 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	if running {
 		report.add("runtime", CheckPass, "service is running")
 		report.State = StateRunning
-		report.NextAction = fmt.Sprintf("agw attach %s", report.WorkspaceID)
+		report.NextAction = fmt.Sprintf("agw start %s", report.WorkspaceID)
 		return report
 	}
 
 	report.add("runtime", CheckFail, "service is not running")
 	report.State = StateNotRunning
-	report.NextAction = fmt.Sprintf("agw build %s && agw up %s", report.WorkspaceID, report.WorkspaceID)
+	report.NextAction = fmt.Sprintf("agw start %s", report.WorkspaceID)
 	return report
 }
 

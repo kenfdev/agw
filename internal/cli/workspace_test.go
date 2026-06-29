@@ -160,6 +160,80 @@ func TestNetworkCandidatesForPreparePrefersComposeNetworks(t *testing.T) {
 	}
 }
 
+func TestWorkspaceNetworkAddPersistsExternalNetworkSelection(t *testing.T) {
+	root := t.TempDir()
+	wsDir := filepath.Join(root, "workspaces", "agw")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	def := workspace.Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Storage:   workspace.Storage{Path: filepath.Join("workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+	}
+	defPath := filepath.Join(wsDir, "agw.yaml")
+	if err := workspace.SaveDefinition(defPath, def); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewWorkspaceCommand()
+	cmd.SetArgs([]string{"network", "add", "agw", "api_default", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := workspace.LoadDefinition(defPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Networks == nil || len(loaded.Networks.Attach) != 1 {
+		t.Fatalf("Networks = %#v", loaded.Networks)
+	}
+	if loaded.Networks.Attach[0].Name != "api_default" {
+		t.Fatalf("network = %q", loaded.Networks.Attach[0].Name)
+	}
+}
+
+func TestWorkspaceNetworkAddDoesNotDuplicateExistingSelection(t *testing.T) {
+	root := t.TempDir()
+	wsDir := filepath.Join(root, "workspaces", "agw")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	def := workspace.Definition{
+		ID:        "agw",
+		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+		Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "api_default"}}},
+	}
+	defPath := filepath.Join(wsDir, "agw.yaml")
+	if err := workspace.SaveDefinition(defPath, def); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewWorkspaceCommand()
+	cmd.SetArgs([]string{"network", "add", "agw", "api_default", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := workspace.LoadDefinition(defPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Networks == nil || len(loaded.Networks.Attach) != 1 {
+		t.Fatalf("Networks = %#v", loaded.Networks)
+	}
+}
+
 func mustWriteCLI(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

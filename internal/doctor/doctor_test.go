@@ -142,6 +142,9 @@ func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 		t.Fatalf("State = %q, want %q", report.State, StateBroken)
 	}
 	assertCheck(t, report, "external network", CheckFail)
+	if report.NextAction != "start the base project services, then run agw start agw" {
+		t.Fatalf("NextAction = %q", report.NextAction)
+	}
 }
 
 func TestDiagnoseBrokenWhenSelectedNetworkNameBlank(t *testing.T) {
@@ -268,6 +271,14 @@ func TestDiagnoseSkipsDockerfileCheckWhenServiceHasNoBuild(t *testing.T) {
 	assertCheckDetail(t, report, "Dockerfile", CheckSkip, "service has no build")
 }
 
+func TestDiagnoseStandaloneWorkspaceReportsNoExternalNetworksRequired(t *testing.T) {
+	located := validLocatedWithCompose(t)
+
+	report := Diagnose(located, fakeRunner{running: false})
+
+	assertCheckDetail(t, report, "external networks", CheckPass, "none required")
+}
+
 func TestDiagnoseWarnsWhenNetworkInspectFails(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
 	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
@@ -322,7 +333,7 @@ func TestDiagnoseRunningWhenServiceRunning(t *testing.T) {
 	if report.State != StateRunning {
 		t.Fatalf("State = %q, want %q", report.State, StateRunning)
 	}
-	if report.NextAction != "agw attach agw" {
+	if report.NextAction != "agw start agw" {
 		t.Fatalf("NextAction = %q", report.NextAction)
 	}
 }
@@ -333,7 +344,7 @@ func TestDiagnoseNotRunningWhenServiceNotRunning(t *testing.T) {
 	if report.State != StateNotRunning {
 		t.Fatalf("State = %q, want %q", report.State, StateNotRunning)
 	}
-	if report.NextAction != "agw build agw && agw up agw" {
+	if report.NextAction != "agw start agw" {
 		t.Fatalf("NextAction = %q", report.NextAction)
 	}
 }

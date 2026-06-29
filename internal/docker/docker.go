@@ -55,8 +55,16 @@ func (c CLI) Up(dir string) error {
 	return c.compose(dir, "docker", "compose", "up")
 }
 
+func (c CLI) UpDetached(dir string) error {
+	return c.compose(dir, "docker", "compose", "up", "-d")
+}
+
 func (c CLI) Down(dir string) error {
 	return c.compose(dir, "docker", "compose", "down")
+}
+
+func (c CLI) Stop(dir string) error {
+	return c.compose(dir, "docker", "compose", "stop")
 }
 
 func (c CLI) Attach(dir string, service string) error {

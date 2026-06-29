@@ -91,6 +91,122 @@ func TestLifecycleAttachUsesConfiguredService(t *testing.T) {
 	}
 }
 
+func TestLifecycleStartBuildsUpsAndAttachesWhenNotRunning(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.buildDir != wsPath {
+		t.Fatalf("build dir = %q, want %q", runner.buildDir, wsPath)
+	}
+	if runner.upDetachedDir != wsPath {
+		t.Fatalf("up detached dir = %q, want %q", runner.upDetachedDir, wsPath)
+	}
+	if runner.attachDir != wsPath {
+		t.Fatalf("attach dir = %q, want %q", runner.attachDir, wsPath)
+	}
+	if runner.attachService != "dev" {
+		t.Fatalf("attach service = %q, want %q", runner.attachService, "dev")
+	}
+}
+
+func TestLifecycleStartOnlyAttachesWhenAlreadyRunning(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{serviceRunning: true}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.buildDir != "" {
+		t.Fatalf("build dir = %q, want empty", runner.buildDir)
+	}
+	if runner.upDir != "" {
+		t.Fatalf("up dir = %q, want empty", runner.upDir)
+	}
+	if runner.upDetachedDir != "" {
+		t.Fatalf("up detached dir = %q, want empty", runner.upDetachedDir)
+	}
+	if runner.attachDir != wsPath {
+		t.Fatalf("attach dir = %q, want %q", runner.attachDir, wsPath)
+	}
+	if runner.attachService != "dev" {
+		t.Fatalf("attach service = %q, want %q", runner.attachService, "dev")
+	}
+}
+
+func TestLifecycleStartStopsBeforeBuildWhenExternalNetworkMissing(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspaceWithNetworks(t, root, "agw", "dev", []workspace.NetworkAttachment{{Name: "target_default"}})
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "target_default")
+
+	runner := &lifecycleFakeRunner{networkExists: map[string]bool{"target_default": false}}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	var out bytes.Buffer
+	cmd := NewRootCommand("test")
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected start to fail")
+	}
+	if runner.buildDir != "" {
+		t.Fatalf("build dir = %q, want empty", runner.buildDir)
+	}
+	if runner.upDetachedDir != "" {
+		t.Fatalf("up detached dir = %q, want empty", runner.upDetachedDir)
+	}
+	if !strings.Contains(out.String(), "external network") {
+		t.Fatalf("start output missing doctor report:\n%s", out.String())
+	}
+	if !strings.Contains(err.Error(), "workspace agw is not ready to start") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestLifecycleStopUsesRunnerWithWorkspaceDir(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"stop", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.stopDir != wsPath {
+		t.Fatalf("stop dir = %q, want %q", runner.stopDir, wsPath)
+	}
+	if runner.downDir != "" {
+		t.Fatalf("down dir = %q, want empty", runner.downDir)
+	}
+}
+
 func TestLifecycleStatusShowsServiceAndNetworks(t *testing.T) {
 	root := t.TempDir()
 	def := workspace.Definition{
@@ -169,6 +285,8 @@ func TestLifecycleHelpDescribesExternalDockerCLI(t *testing.T) {
 		args []string
 		want string
 	}{
+		{args: []string{"start", "--help"}, want: "Start the AGW workspace"},
+		{args: []string{"stop", "--help"}, want: "Stop the AGW workspace"},
 		{args: []string{"build", "--help"}, want: "Run external Docker CLI build"},
 		{args: []string{"up", "--help"}, want: "Run external Docker CLI up"},
 		{args: []string{"down", "--help"}, want: "Run external Docker CLI down"},
@@ -209,6 +327,44 @@ func mustWriteLifecycleWorkspace(t *testing.T, root, id, service string) (string
 		t.Fatal(err)
 	}
 	return cfgPath, wsPath
+}
+
+func mustWriteLifecycleWorkspaceWithNetworks(t *testing.T, root, id, service string, networks []workspace.NetworkAttachment) (string, string) {
+	t.Helper()
+	defPath, wsPath := createLifecycleDir(t, root, id)
+	storage := filepath.Join(root, "storage", id)
+	def := workspace.Definition{
+		ID:      id,
+		Storage: workspace.Storage{Path: storage},
+		Container: workspace.Container{
+			Service:       service,
+			WorkspaceRoot: "/workspace",
+		},
+		Networks: &workspace.Networks{Attach: networks},
+	}
+	mustWriteLifecycleDefinitionFile(t, defPath, def)
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+		t.Fatal(err)
+	}
+	return cfgPath, wsPath
+}
+
+func mustWriteStartWorkspaceFiles(t *testing.T, wsPath, service, externalNetwork string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(wsPath, "prompt.md"), []byte("prompt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsPath, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compose := "services:\n  " + service + ":\n    build: .\n"
+	if externalNetwork != "" {
+		compose += "    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: " + externalNetwork + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(wsPath, "compose.yaml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustWriteLifecycleDefinition(t *testing.T, root, id string, def workspace.Definition) (string, string) {
@@ -258,11 +414,14 @@ func mustWriteLifecycleDefinitionFile(t *testing.T, path string, def workspace.D
 type lifecycleFakeRunner struct {
 	buildDir      string
 	upDir         string
+	upDetachedDir string
 	downDir       string
+	stopDir       string
 	attachDir     string
 	attachService string
 
-	networkExists map[string]bool
+	networkExists  map[string]bool
+	serviceRunning bool
 }
 
 func (r *lifecycleFakeRunner) Build(dir string) error {
@@ -275,8 +434,18 @@ func (r *lifecycleFakeRunner) Up(dir string) error {
 	return nil
 }
 
+func (r *lifecycleFakeRunner) UpDetached(dir string) error {
+	r.upDetachedDir = dir
+	return nil
+}
+
 func (r *lifecycleFakeRunner) Down(dir string) error {
 	r.downDir = dir
+	return nil
+}
+
+func (r *lifecycleFakeRunner) Stop(dir string) error {
+	r.stopDir = dir
 	return nil
 }
 
@@ -296,5 +465,5 @@ func (r *lifecycleFakeRunner) NetworkExists(name string) (bool, error) {
 }
 
 func (r *lifecycleFakeRunner) ServiceRunning(dir string, service string) (bool, error) {
-	return false, nil
+	return r.serviceRunning, nil
 }

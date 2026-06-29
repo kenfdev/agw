@@ -27,6 +27,8 @@ func NewRootCommand(version string) *cobra.Command {
 	cmd.AddCommand(NewConfigCommand())
 	cmd.AddCommand(NewWorkspaceCommand())
 	cmd.AddCommand(
+		newLifecycleStartCommand(),
+		newLifecycleStopCommand(),
 		newDoctorCommand(),
 		newLifecycleBuildCommand(),
 		newLifecycleUpCommand(),
