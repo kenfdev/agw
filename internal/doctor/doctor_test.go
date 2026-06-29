@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,6 +91,106 @@ func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 	assertCheck(t, report, "external network", CheckFail)
 }
 
+func TestDiagnoseBrokenWhenServiceMissing(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  other:\n    build: .\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckDetail(t, report, "service", CheckFail, "service dev not found in compose.yaml")
+}
+
+func TestDiagnoseBrokenWhenMountMissing(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/missing\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckDetail(t, report, "project mount", CheckFail, fmt.Sprintf("missing volume %s:/workspace for project agw", project))
+}
+
+func TestDiagnoseNeedsApplyWhenDockerfileMissing(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateNeedsApply {
+		t.Fatalf("State = %q, want %q", report.State, StateNeedsApply)
+	}
+	assertCheckContains(t, report, "Dockerfile", CheckFail, "no such file")
+}
+
+func TestDiagnoseBrokenWhenComposeConfigFails(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+	runner := fakeRunner{composeErr: errors.New("compose config failed")}
+
+	report := Diagnose(located, runner)
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckDetail(t, report, "compose config", CheckFail, "compose config failed")
+}
+
 func validWorkspaceDirs(t *testing.T) (string, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -149,13 +250,41 @@ func mustMkdirForTest(path string) {
 
 func assertCheck(t *testing.T, report Report, name string, status CheckStatus) {
 	t.Helper()
+	check := findCheck(t, report, name)
+	if check.Status != status {
+		t.Fatalf("check %q status = %q, want %q", name, check.Status, status)
+	}
+}
+
+func assertCheckDetail(t *testing.T, report Report, name string, status CheckStatus, detail string) {
+	t.Helper()
+	check := findCheck(t, report, name)
+	if check.Status != status {
+		t.Fatalf("check %q status = %q, want %q", name, check.Status, status)
+	}
+	if check.Detail != detail {
+		t.Fatalf("check %q detail = %q, want %q", name, check.Detail, detail)
+	}
+}
+
+func assertCheckContains(t *testing.T, report Report, name string, status CheckStatus, detail string) {
+	t.Helper()
+	check := findCheck(t, report, name)
+	if check.Status != status {
+		t.Fatalf("check %q status = %q, want %q", name, check.Status, status)
+	}
+	if !strings.Contains(check.Detail, detail) {
+		t.Fatalf("check %q detail = %q, want to contain %q", name, check.Detail, detail)
+	}
+}
+
+func findCheck(t *testing.T, report Report, name string) Check {
+	t.Helper()
 	for _, check := range report.Checks {
 		if check.Name == name {
-			if check.Status != status {
-				t.Fatalf("check %q status = %q, want %q", name, check.Status, status)
-			}
-			return
+			return check
 		}
 	}
 	t.Fatalf("missing check %q in %#v", name, report.Checks)
+	panic("unreachable")
 }

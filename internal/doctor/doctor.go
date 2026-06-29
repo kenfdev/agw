@@ -81,7 +81,7 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 
 	composeFile, err := compose.Load(composePath)
 	if err != nil {
-		return fail(&report, "compose.yaml", err.Error(), "fix compose.yaml", StateBroken)
+		return fail(&report, "compose parse", err.Error(), "fix compose.yaml", StateBroken)
 	}
 	service, ok := composeFile.Services[located.Definition.Container.Service]
 	if !ok {
