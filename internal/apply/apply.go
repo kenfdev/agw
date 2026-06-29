@@ -23,24 +23,24 @@ func Apply(workspaceDir string, def workspace.Definition, generatedDir string, r
 	if err != nil {
 		return err
 	}
+	if pathsOverlap(workspaceDir, generatedDir) {
+		return fmt.Errorf("generated directory must not overlap workspace directory")
+	}
 
 	composeSource := filepath.Join(generatedDir, "compose.yaml")
 	if _, err := os.Stat(composeSource); err != nil {
 		return fmt.Errorf("generated compose.yaml not found: %w", err)
 	}
 
-	if err := copyRegularFiles(workspaceDir, generatedDir); err != nil {
-		return err
-	}
-
-	composeFile, err := compose.Load(filepath.Join(workspaceDir, "compose.yaml"))
+	composeFile, err := compose.Load(composeSource)
 	if err != nil {
 		return err
 	}
-	if err := validateCompose(workspaceDir, def, composeFile, runner); err != nil {
+	if err := validateCompose(generatedDir, def, composeFile, runner); err != nil {
 		return err
 	}
-	return nil
+
+	return copyRegularFiles(workspaceDir, generatedDir)
 }
 
 func copyRegularFiles(workspaceDir, generatedDir string) error {
@@ -129,12 +129,31 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 	if !ok {
 		return fmt.Errorf("service %s not found in compose.yaml", def.Container.Service)
 	}
+	if err := validateBuildDockerfile(workspaceDir, service); err != nil {
+		return err
+	}
 
 	for _, project := range def.Projects {
 		if !hasVolumeMount(service.Volumes, project.Path, project.MountPath) {
 			required := project.Path + ":" + project.MountPath
 			return fmt.Errorf("missing volume %s for project %s", required, project.Name)
 		}
+	}
+
+	checkedNetworks := map[string]struct{}{}
+	for _, attachment := range selectedNetworks(def) {
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			continue
+		}
+		network, ok := findComposeNetwork(file.Networks, name)
+		if !ok || !network.External {
+			return fmt.Errorf("selected network %s must be declared as external in compose.yaml", name)
+		}
+		if err := validateExternalNetwork(name, runner); err != nil {
+			return err
+		}
+		checkedNetworks[name] = struct{}{}
 	}
 
 	for key, network := range file.Networks {
@@ -145,17 +164,112 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 		if name == "" {
 			name = key
 		}
-		exists, err := runner.NetworkExists(name)
-		if err != nil {
-			return err
+		if _, ok := checkedNetworks[name]; ok {
+			continue
 		}
-		if !exists {
-			return fmt.Errorf("external network %s not found", name)
+		if err := validateExternalNetwork(name, runner); err != nil {
+			return err
 		}
 	}
 
 	if err := runner.ComposeConfig(workspaceDir); err != nil {
 		return fmt.Errorf("docker compose config: %w", err)
+	}
+	return nil
+}
+
+func pathsOverlap(a, b string) bool {
+	return pathContains(a, b) || pathContains(b, a)
+}
+
+func pathContains(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
+}
+
+func validateBuildDockerfile(workspaceDir string, service compose.Service) error {
+	contextDir, dockerfile, ok := buildPaths(service.Build)
+	if !ok {
+		return nil
+	}
+	if dockerfile == "" {
+		dockerfile = "Dockerfile"
+	}
+	if contextDir == "" {
+		contextDir = "."
+	}
+	path := filepath.Join(workspaceDir, contextDir, dockerfile)
+	if err := ensureInside(workspaceDir, path); err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s not found for service build: %w", dockerfile, err)
+		}
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s not found for service build: is a directory", dockerfile)
+	}
+	return nil
+}
+
+func buildPaths(build any) (string, string, bool) {
+	switch value := build.(type) {
+	case nil:
+		return "", "", false
+	case string:
+		return value, "Dockerfile", true
+	case map[string]any:
+		return stringMapValue(value, "context"), stringMapValue(value, "dockerfile"), true
+	case map[any]any:
+		return anyMapValue(value, "context"), anyMapValue(value, "dockerfile"), true
+	default:
+		return "", "", false
+	}
+}
+
+func stringMapValue(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func anyMapValue(values map[any]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func selectedNetworks(def workspace.Definition) []workspace.NetworkAttachment {
+	if def.Networks == nil {
+		return nil
+	}
+	return def.Networks.Attach
+}
+
+func findComposeNetwork(networks map[string]compose.Network, selected string) (compose.Network, bool) {
+	for key, network := range networks {
+		name := network.Name
+		if name == "" {
+			name = key
+		}
+		if key == selected || name == selected {
+			return network, true
+		}
+	}
+	return compose.Network{}, false
+}
+
+func validateExternalNetwork(name string, runner docker.Runner) error {
+	exists, err := runner.NetworkExists(name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("external network %s not found", name)
 	}
 	return nil
 }

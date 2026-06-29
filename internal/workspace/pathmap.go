@@ -14,7 +14,7 @@ func SuggestStoragePath(projectPath string, mappings []config.PathMapping) (stri
 	for _, m := range mappings {
 		root := filepath.Clean(m.SourceRoot)
 		rel, err := filepath.Rel(root, cleanProject)
-		if err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return filepath.Join(m.WorkspacePrefix, rel), true
 		}
 	}

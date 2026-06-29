@@ -20,6 +20,29 @@ func TestSuggestStoragePathUsesMapping(t *testing.T) {
 	}
 }
 
+func TestSuggestStoragePathAllowsRelativePathStartingWithDotDotText(t *testing.T) {
+	got, ok := SuggestStoragePath("/Users/me/ghq/..foo", []config.PathMapping{{
+		SourceRoot:      "/Users/me/ghq",
+		WorkspacePrefix: "workspaces",
+	}})
+	if !ok {
+		t.Fatal("expected suggestion")
+	}
+	if got != filepath.Join("workspaces", "..foo") {
+		t.Fatalf("suggestion = %q", got)
+	}
+}
+
+func TestSuggestStoragePathRejectsEscapingRelativePath(t *testing.T) {
+	_, ok := SuggestStoragePath("/Users/me/other", []config.PathMapping{{
+		SourceRoot:      "/Users/me/ghq",
+		WorkspacePrefix: "workspaces",
+	}})
+	if ok {
+		t.Fatal("expected no suggestion for path outside source root")
+	}
+}
+
 func TestLoadSaveDefinition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agw.yaml")
 	want := Definition{

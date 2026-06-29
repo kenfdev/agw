@@ -53,7 +53,15 @@ func (c CLI) Down(dir string) error {
 }
 
 func (c CLI) Attach(dir string, service string) error {
-	return c.compose(dir, "docker", "compose", "exec", service, "bash")
+	var lastErr error
+	for _, shell := range []string{"bash", "zsh", "sh"} {
+		if err := c.compose(dir, "docker", "compose", "exec", service, shell); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
 }
 
 func (c CLI) compose(dir string, args ...string) error {

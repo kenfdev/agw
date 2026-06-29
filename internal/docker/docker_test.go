@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"errors"
 	"os/exec"
 	"reflect"
 	"testing"
@@ -119,6 +120,32 @@ func TestAttachUsesDockerComposeExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"docker", "compose", "exec", "dev", "bash"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestAttachFallsBackFromBashToZshToSh(t *testing.T) {
+	var got [][]string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		call := append([]string{name}, args...)
+		got = append(got, call)
+		shell := args[len(args)-1]
+		if shell == "sh" {
+			return nil
+		}
+		return errors.New(shell + " not found")
+	}}
+
+	if err := cli.Attach("/tmp/ws", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"docker", "compose", "exec", "dev", "bash"},
+		{"docker", "compose", "exec", "dev", "zsh"},
+		{"docker", "compose", "exec", "dev", "sh"},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}

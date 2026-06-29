@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kenfdev/agw/internal/workspace"
@@ -34,6 +35,18 @@ func TestScanProjectIncludesMajorConfigAndExcludesEnv(t *testing.T) {
 	}
 	if hasFile(snap.Files, ".hiddenconfig") {
 		t.Fatalf("unrelated hidden file was included: %#v", snap.Files)
+	}
+}
+
+func TestScanProjectRejectsMissingProjectPath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	_, err := ScanProject(workspace.Project{Name: "web", Path: missing, MountPath: "/workspace/web"})
+	if err == nil {
+		t.Fatal("expected missing project path to fail")
+	}
+	if !strings.Contains(err.Error(), "project path must be an existing directory") {
+		t.Fatalf("ScanProject() error = %v", err)
 	}
 }
 

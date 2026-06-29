@@ -38,6 +38,17 @@ func ScanProject(project workspace.Project) (ProjectSnapshot, error) {
 	if project.Path == "" {
 		return ProjectSnapshot{}, errors.New("project path is empty")
 	}
+	info, err := os.Stat(project.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ProjectSnapshot{}, errors.New("project path must be an existing directory")
+		}
+		return ProjectSnapshot{}, err
+	}
+	if !info.IsDir() {
+		return ProjectSnapshot{}, errors.New("project path must be an existing directory")
+	}
+
 	var files []FileSnapshot
 	for _, rel := range candidateFiles {
 		if !isAllowedCandidate(rel) {
@@ -45,7 +56,13 @@ func ScanProject(project workspace.Project) (ProjectSnapshot, error) {
 		}
 		full := filepath.Join(project.Path, rel)
 		info, err := os.Stat(full)
-		if err != nil || info.IsDir() {
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return ProjectSnapshot{}, err
+		}
+		if info.IsDir() {
 			continue
 		}
 		b, err := os.ReadFile(full)

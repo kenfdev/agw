@@ -86,7 +86,7 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 	}
 }
 
-func TestWorkspaceApplyUsesLocatedWorkspaceDirectory(t *testing.T) {
+func TestWorkspaceApplyValidatesGeneratedDirectoryBeforeCopying(t *testing.T) {
 	root := t.TempDir()
 	wsDir := filepath.Join(root, "workspaces", "agw")
 	genDir := filepath.Join(root, "generated")
@@ -106,6 +106,7 @@ func TestWorkspaceApplyUsesLocatedWorkspaceDirectory(t *testing.T) {
 	if err := workspace.SaveDefinition(filepath.Join(wsDir, "agw.yaml"), def); err != nil {
 		t.Fatal(err)
 	}
+	mustWriteCLI(t, filepath.Join(genDir, "Dockerfile"), "FROM alpine\n")
 	mustWriteCLI(t, filepath.Join(genDir, "compose.yaml"), "services:\n  dev:\n    build: .\n")
 
 	cfgPath := filepath.Join(root, "config.yaml")
@@ -126,8 +127,8 @@ func TestWorkspaceApplyUsesLocatedWorkspaceDirectory(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	if composeDir != wsDir {
-		t.Fatalf("ComposeConfig dir = %q, want %q", composeDir, wsDir)
+	if composeDir != genDir {
+		t.Fatalf("ComposeConfig dir = %q, want %q", composeDir, genDir)
 	}
 	if _, err := os.Stat(filepath.Join(wsDir, "compose.yaml")); err != nil {
 		t.Fatal(err)
