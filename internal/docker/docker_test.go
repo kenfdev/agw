@@ -2,6 +2,7 @@ package docker
 
 import (
 	"os/exec"
+	"reflect"
 	"testing"
 )
 
@@ -54,6 +55,71 @@ func TestNetworkExistsReturnsErrorForExecuteError(t *testing.T) {
 	_, err := CLI{}.NetworkExists("bad")
 	if err == nil {
 		t.Fatal("expected execution error")
+	}
+}
+
+func TestBuildUsesDockerComposeBuild(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.Build("/tmp/ws"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "build"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestUpUsesDockerComposeUp(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.Up("/tmp/ws"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "up"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestDownUsesDockerComposeDown(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.Down("/tmp/ws"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "down"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestAttachUsesDockerComposeExec(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.Attach("/tmp/ws", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	_ = got
+	want := []string{"docker", "compose", "exec", "dev", "bash"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
 	}
 }
 
