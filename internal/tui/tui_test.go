@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
@@ -14,6 +15,35 @@ func TestModelInitialViewContainsWorkspace(t *testing.T) {
 	view := model.View()
 	if !strings.Contains(view, "agw") {
 		t.Fatalf("view = %q", view)
+	}
+}
+
+func TestModelInitialViewShowsWorkspaceStateAndDetails(t *testing.T) {
+	reports := []doctor.Report{{
+		WorkspaceID: "agw",
+		State:       doctor.StateNeedsApply,
+		Checks: []doctor.Check{
+			{Name: "project path", Status: doctor.CheckPass, Detail: "/repo"},
+			{Name: "compose.yaml", Status: doctor.CheckFail, Detail: "missing"},
+		},
+		NextAction: "agw workspace apply agw <generated-dir>",
+	}}
+	model := NewModelWithReports(reports, nil)
+	view := model.View()
+	for _, want := range []string{"agw", "needs-apply", "compose.yaml", "Next:", "agw workspace apply agw"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestModelRefreshUpdatesSelectedReport(t *testing.T) {
+	actions := &fakeActions{refreshReport: doctor.Report{WorkspaceID: "agw", State: doctor.StateRunning}}
+	model := NewModelWithReports([]doctor.Report{{WorkspaceID: "agw", State: doctor.StateNeedsApply}}, actions)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "running") {
+		t.Fatalf("view did not refresh:\n%s", model.View())
 	}
 }
 
@@ -66,6 +96,7 @@ type fakeActions struct {
 	buildWorkspace string
 	buildResult    string
 	prepareResult  string
+	refreshReport  doctor.Report
 	statusErr      error
 }
 
@@ -81,4 +112,7 @@ func (a *fakeActions) Down(workspace.LocatedDefinition) (string, error)   { retu
 func (a *fakeActions) Attach(workspace.LocatedDefinition) (string, error) { return "", nil }
 func (a *fakeActions) Prepare(workspace.LocatedDefinition) (string, error) {
 	return a.prepareResult, nil
+}
+func (a *fakeActions) Refresh(workspace.LocatedDefinition) (doctor.Report, error) {
+	return a.refreshReport, nil
 }

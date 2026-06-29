@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/prepare"
 	"github.com/kenfdev/agw/internal/scanner"
 	"github.com/kenfdev/agw/internal/tui"
@@ -49,7 +50,12 @@ func newTUICommand() *cobra.Command {
 				return err
 			}
 			actions := &tuiActions{out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
-			if err := tui.RunWithActions(items, actions); err != nil {
+			reports := make([]doctor.Report, 0, len(items))
+			for _, item := range items {
+				report, _ := actions.Refresh(item)
+				reports = append(reports, report)
+			}
+			if err := tui.RunWithReports(items, reports, actions); err != nil {
 				return fmt.Errorf("tui failed: %w", err)
 			}
 			return nil
@@ -138,4 +144,8 @@ func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
 		return "", err
 	}
 	return "wrote " + promptPath, nil
+}
+
+func (a *tuiActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, error) {
+	return doctor.Diagnose(item, newLifecycleRunner(a.out, a.err)), nil
 }
