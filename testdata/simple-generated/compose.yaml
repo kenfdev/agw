@@ -1,0 +1,6 @@
+services:
+  dev:
+    build: .
+    volumes:
+      - /tmp/agw-e2e-project:/workspace
+    working_dir: /workspace
