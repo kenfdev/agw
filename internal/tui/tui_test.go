@@ -38,12 +38,38 @@ func TestModelInitialViewShowsWorkspaceStateAndDetails(t *testing.T) {
 }
 
 func TestModelRefreshUpdatesSelectedReport(t *testing.T) {
-	actions := &fakeActions{refreshReport: doctor.Report{WorkspaceID: "agw", State: doctor.StateRunning}}
-	model := NewModelWithReports([]doctor.Report{{WorkspaceID: "agw", State: doctor.StateNeedsApply}}, actions)
+	actions := &fakeActions{
+		refreshReport: doctor.Report{WorkspaceID: "agw", State: doctor.StateRunning},
+	}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{
+		Definition: workspace.Definition{ID: "agw"},
+		Path:       "/repo/agw.yaml",
+	}}, actions)
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	model = updated.(Model)
+	if actions.refreshCalls != 1 {
+		t.Fatalf("refresh calls = %d", actions.refreshCalls)
+	}
+	if actions.lastRefresh.Path != "/repo/agw.yaml" {
+		t.Fatalf("refresh path = %q", actions.lastRefresh.Path)
+	}
 	if !strings.Contains(model.View(), "running") {
 		t.Fatalf("view did not refresh:\n%s", model.View())
+	}
+}
+
+func TestModelReportOnlyRefreshFailsWithoutCallingActions(t *testing.T) {
+	actions := &fakeActions{refreshReport: doctor.Report{WorkspaceID: "agw", State: doctor.StateRunning}}
+	model := NewModelWithReports([]doctor.Report{{WorkspaceID: "agw", State: doctor.StateNeedsApply}}, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = updated.(Model)
+
+	if actions.refreshCalls != 0 {
+		t.Fatalf("refresh calls = %d", actions.refreshCalls)
+	}
+	if !strings.Contains(model.View(), "refresh failed: workspace path unavailable") {
+		t.Fatalf("view missing refresh failure:\n%s", model.View())
 	}
 }
 
@@ -97,6 +123,8 @@ type fakeActions struct {
 	buildResult    string
 	prepareResult  string
 	refreshReport  doctor.Report
+	refreshCalls   int
+	lastRefresh    workspace.LocatedDefinition
 	statusErr      error
 }
 
@@ -113,6 +141,8 @@ func (a *fakeActions) Attach(workspace.LocatedDefinition) (string, error) { retu
 func (a *fakeActions) Prepare(workspace.LocatedDefinition) (string, error) {
 	return a.prepareResult, nil
 }
-func (a *fakeActions) Refresh(workspace.LocatedDefinition) (doctor.Report, error) {
+func (a *fakeActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, error) {
+	a.refreshCalls++
+	a.lastRefresh = item
 	return a.refreshReport, nil
 }

@@ -178,18 +178,16 @@ func (m Model) refreshSelectedReport() Model {
 		m.status = "refresh failed: no actions configured"
 		return m
 	}
-	if len(m.workspaces) == 0 && len(m.reports) == 0 {
+	if len(m.workspaces) == 0 {
+		m.status = "refresh failed: workspace path unavailable"
+		return m
+	}
+	if m.selected >= len(m.workspaces) {
 		m.status = "refresh failed: no workspace selected"
 		return m
 	}
 
-	var item workspace.LocatedDefinition
-	if len(m.workspaces) > 0 && m.selected < len(m.workspaces) {
-		item = m.workspaces[m.selected]
-	} else if m.selected < len(m.reports) {
-		item = workspace.LocatedDefinition{Definition: workspace.Definition{ID: m.reports[m.selected].WorkspaceID}}
-	}
-
+	item := m.workspaces[m.selected]
 	report, err := m.actions.Refresh(item)
 	if err != nil {
 		m.status = "refresh failed: " + err.Error()
