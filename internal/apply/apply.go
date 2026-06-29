@@ -24,6 +24,11 @@ func Apply(workspaceDir string, def workspace.Definition, generatedDir string, r
 		return err
 	}
 
+	composeSource := filepath.Join(generatedDir, "compose.yaml")
+	if _, err := os.Stat(composeSource); err != nil {
+		return fmt.Errorf("generated compose.yaml not found: %w", err)
+	}
+
 	if err := copyRegularFiles(workspaceDir, generatedDir); err != nil {
 		return err
 	}

@@ -52,6 +52,22 @@ func TestApplyBacksUpExistingRegularFiles(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsMissingGeneratedCompose(t *testing.T) {
+	ws := t.TempDir()
+	gen := t.TempDir()
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), "services:\n  web:\n    build: .\n")
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
+	def := workspace.Definition{Container: workspace.Container{Service: "web"}}
+
+	err := Apply(ws, def, gen, fakeRunner{})
+	if err == nil {
+		t.Fatal("expected missing generated compose.yaml to fail")
+	}
+	if !strings.Contains(err.Error(), "generated compose.yaml not found") {
+		t.Fatalf("Apply() error = %v", err)
+	}
+}
+
 func TestApplyRejectsMissingService(t *testing.T) {
 	ws := t.TempDir()
 	gen := t.TempDir()
