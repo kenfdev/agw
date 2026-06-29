@@ -1,0 +1,60 @@
+package prepare
+
+import (
+	"bytes"
+	"fmt"
+
+	"github.com/kenfdev/agw/internal/scanner"
+	"github.com/kenfdev/agw/internal/workspace"
+)
+
+type Input struct {
+	Definition        workspace.Definition
+	Projects          []scanner.ProjectSnapshot
+	NetworkCandidates []string
+}
+
+func Render(input Input) (string, error) {
+	var b bytes.Buffer
+	def := input.Definition
+
+	fmt.Fprintf(&b, "# AGW Workspace Preparation: %s\n\n", def.ID)
+	fmt.Fprintln(&b, "Create sidecar Docker development workspace files for AGW.")
+	fmt.Fprintln(&b, "Do not edit target project files. Generate files for the AGW workspace directory only.")
+	fmt.Fprintln(&b, "If important information is missing, ask questions before generating files.")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Service: `%s`\n\n", def.Container.Service)
+	fmt.Fprintf(&b, "Workspace root: `%s`\n\n", def.Container.WorkspaceRoot)
+
+	fmt.Fprintln(&b, "## Projects")
+	for _, p := range def.Projects {
+		fmt.Fprintf(&b, "- `%s`: local `%s`, mount `%s`\n", p.Name, p.Path, p.MountPath)
+	}
+
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Candidate Docker Networks")
+	if len(input.NetworkCandidates) == 0 {
+		fmt.Fprintln(&b, "- None detected")
+	} else {
+		for _, n := range input.NetworkCandidates {
+			fmt.Fprintf(&b, "- `%s`\n", n)
+		}
+	}
+
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Required Output")
+	fmt.Fprintln(&b, "- `Dockerfile`")
+	fmt.Fprintln(&b, "- `compose.yaml` with external networks when selected")
+	fmt.Fprintln(&b, "- Optional `.env.example` and `README.md`")
+
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Project Files")
+	for _, project := range input.Projects {
+		fmt.Fprintf(&b, "\n### %s\n", project.Project.Name)
+		for _, file := range project.Files {
+			fmt.Fprintf(&b, "\n#### `%s`\n\n```text\n%s\n```\n", file.Path, file.Content)
+		}
+	}
+
+	return b.String(), nil
+}
