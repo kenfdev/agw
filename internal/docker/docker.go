@@ -21,6 +21,7 @@ type Network struct {
 }
 
 type CLI struct {
+	In   io.Reader
 	Out  io.Writer
 	Err  io.Writer
 	Exec func(dir string, name string, args ...string) error
@@ -72,12 +73,17 @@ func (c CLI) compose(dir string, args ...string) error {
 	if out == nil {
 		out = os.Stdout
 	}
+	in := c.In
+	if in == nil {
+		in = os.Stdin
+	}
 	errOut := c.Err
 	if errOut == nil {
 		errOut = os.Stderr
 	}
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = dir
+	cmd.Stdin = in
 	cmd.Stdout = out
 	cmd.Stderr = errOut
 	return cmd.Run()

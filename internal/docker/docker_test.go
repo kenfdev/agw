@@ -1,9 +1,11 @@
 package docker
 
 import (
+	"bytes"
 	"errors"
 	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -148,6 +150,21 @@ func TestAttachFallsBackFromBashToZshToSh(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestComposeCommandReceivesConfiguredStdin(t *testing.T) {
+	var out bytes.Buffer
+	cli := CLI{
+		In:  strings.NewReader("hello\n"),
+		Out: &out,
+	}
+
+	if err := cli.compose(t.TempDir(), "cat"); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "hello\n" {
+		t.Fatalf("stdout = %q", got)
 	}
 }
 
