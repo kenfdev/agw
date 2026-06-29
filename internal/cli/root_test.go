@@ -68,4 +68,7 @@ func TestRootCommandShowsHelp(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("Agent Workspace")) {
 		t.Fatalf("help output did not contain product name: %s", out.String())
 	}
+	if !bytes.Contains(out.Bytes(), []byte("external Docker CLI")) {
+		t.Fatalf("help output did not describe Docker boundary: %s", out.String())
+	}
 }

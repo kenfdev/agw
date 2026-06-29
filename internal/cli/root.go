@@ -19,7 +19,7 @@ func NewRootCommand(version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "agw",
 		Short:         "Agent Workspace",
-		Long:          "Agent Workspace manages personal sidecar development containers.",
+		Long:          "Agent Workspace prepares workspace files and can call the external Docker CLI for sidecar development containers.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

@@ -164,6 +164,33 @@ func TestLifecycleListShowsWorkspaceIdsAndStorage(t *testing.T) {
 	}
 }
 
+func TestLifecycleHelpDescribesExternalDockerCLI(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"build", "--help"}, want: "Run external Docker CLI build"},
+		{args: []string{"up", "--help"}, want: "Run external Docker CLI up"},
+		{args: []string{"down", "--help"}, want: "Run external Docker CLI down"},
+		{args: []string{"attach", "--help"}, want: "Run external Docker CLI exec"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			cmd := NewRootCommand("test")
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SetArgs(tc.args)
+
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("help output missing %q:\n%s", tc.want, out.String())
+			}
+		})
+	}
+}
+
 func mustWriteLifecycleWorkspace(t *testing.T, root, id, service string) (string, string) {
 	t.Helper()
 	defPath, wsPath := createLifecycleDir(t, root, id)

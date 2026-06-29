@@ -32,7 +32,7 @@ func newLifecycleBuildCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "build <workspace>",
-		Short: "Build the workspace compose services",
+		Short: "Run external Docker CLI build for the workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			located, err := findLocatedDefinition(configPath, args[0])
@@ -52,7 +52,7 @@ func newLifecycleUpCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "up <workspace>",
-		Short: "Start workspace containers",
+		Short: "Run external Docker CLI up for the workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			located, err := findLocatedDefinition(configPath, args[0])
@@ -72,7 +72,7 @@ func newLifecycleDownCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "down <workspace>",
-		Short: "Stop workspace containers",
+		Short: "Run external Docker CLI down for the workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			located, err := findLocatedDefinition(configPath, args[0])
@@ -92,7 +92,7 @@ func newLifecycleAttachCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "attach <workspace>",
-		Short: "Attach to a workspace container",
+		Short: "Run external Docker CLI exec for the workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			located, err := findLocatedDefinition(configPath, args[0])

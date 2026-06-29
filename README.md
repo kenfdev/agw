@@ -1,5 +1,16 @@
 # AGW
 
+## Docker Boundary
+
+AGW does not embed Docker, the Docker Engine, or a Docker SDK. It prepares
+workspace definitions and generated files, then either prints guidance or calls
+the user's installed `docker` CLI for convenience commands such as
+`docker compose build`, `docker compose up`, and `docker compose exec`.
+
+Docker remains an external runtime owned by the user. AGW should stay a thin
+workspace preparation and command-assistance layer, not a container
+orchestrator.
+
 ## MVP Flow
 
 ```bash
