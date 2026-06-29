@@ -19,6 +19,10 @@ var newDockerRunner = func() docker.Runner {
 	return docker.CLI{}
 }
 
+var newDockerCLI = func() docker.CLI {
+	return docker.CLI{}
+}
+
 func NewWorkspaceCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "workspace", Short: "Manage AGW workspaces"}
 	cmd.AddCommand(newWorkspacePrepareCommand())
@@ -187,10 +191,16 @@ func newWorkspacePrepareCommand() *cobra.Command {
 				projectSnapshots = append(projectSnapshots, snapshot)
 			}
 
+			availableNetworks, err := newDockerCLI().ListNetworks()
+			if err != nil {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: unable to list Docker networks: %v\n", err)
+				availableNetworks = nil
+			}
+
 			prompt, err := prepare.Render(prepare.Input{
 				Definition:        located.Definition,
 				Projects:          projectSnapshots,
-				NetworkCandidates: networkCandidates(located.Definition),
+				NetworkCandidates: networkCandidatesForPrepare(located.Definition, availableNetworks),
 			})
 			if err != nil {
 				return err
@@ -263,4 +273,40 @@ func networkCandidates(def workspace.Definition) []string {
 		out = append(out, attachment.Name)
 	}
 	return out
+}
+
+func networkCandidatesForPrepare(def workspace.Definition, discovered []docker.Network) []string {
+	candidates := networkCandidates(def)
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		seen[candidate] = struct{}{}
+	}
+
+	composeNetworks := make([]string, 0)
+	otherNetworks := make([]string, 0)
+	for _, network := range discovered {
+		name := strings.TrimSpace(network.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		if hasComposeLabel(network.Labels) {
+			composeNetworks = append(composeNetworks, name)
+			continue
+		}
+		otherNetworks = append(otherNetworks, name)
+	}
+	return append(append(candidates, composeNetworks...), otherNetworks...)
+}
+
+func hasComposeLabel(labels map[string]string) bool {
+	for key := range labels {
+		if strings.HasPrefix(key, "com.docker.compose.") {
+			return true
+		}
+	}
+	return false
 }

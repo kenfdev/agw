@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +15,11 @@ type Runner interface {
 	NetworkExists(name string) (bool, error)
 }
 
+type Network struct {
+	Name   string
+	Labels map[string]string
+}
+
 type CLI struct {
 	Out  io.Writer
 	Err  io.Writer
@@ -21,6 +28,11 @@ type CLI struct {
 
 var runNetworkInspect = func(name string) ([]byte, error) {
 	cmd := exec.Command("docker", "network", "inspect", name)
+	return cmd.CombinedOutput()
+}
+
+var runNetworkList = func() ([]byte, error) {
+	cmd := exec.Command("docker", "network", "ls", "--format", "{{json .}}")
 	return cmd.CombinedOutput()
 }
 
@@ -75,6 +87,65 @@ func (CLI) NetworkExists(name string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func (CLI) ListNetworks() ([]Network, error) {
+	out, err := runNetworkList()
+	if err != nil {
+		return nil, err
+	}
+	var networks []Network
+	sc := bufio.NewScanner(strings.NewReader(string(out)))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var payload struct {
+			Name   string          `json:"Name"`
+			Labels json.RawMessage `json:"Labels"`
+		}
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			return nil, err
+		}
+		networks = append(networks, Network{
+			Name:   payload.Name,
+			Labels: parseLabelsFromJSON(payload.Labels),
+		})
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return networks, nil
+}
+
+func parseLabelsFromJSON(raw json.RawMessage) map[string]string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]string{}
+	}
+	var rawLabels string
+	if err := json.Unmarshal(raw, &rawLabels); err != nil {
+		return map[string]string{}
+	}
+	labels := strings.TrimSpace(rawLabels)
+	if labels == "" {
+		return map[string]string{}
+	}
+
+	parts := strings.Split(labels, ",")
+	out := make(map[string]string, len(parts))
+	for _, part := range parts {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		if key == "" {
+			continue
+		}
+		out[key] = strings.TrimSpace(kv[1])
+	}
+	return out
 }
 
 func isNetworkNotFoundOutput(output []byte) bool {

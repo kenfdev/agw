@@ -134,6 +134,31 @@ func TestWorkspaceApplyUsesLocatedWorkspaceDirectory(t *testing.T) {
 	}
 }
 
+func TestNetworkCandidatesForPreparePrefersComposeNetworks(t *testing.T) {
+	def := workspace.Definition{
+		Networks: &workspace.Networks{
+			Attach: []workspace.NetworkAttachment{
+				{Name: "manual"},
+			},
+		},
+	}
+	candidates := networkCandidatesForPrepare(def, []docker.Network{
+		{Name: "acme_default", Labels: map[string]string{"com.docker.compose.project": "acme"}},
+		{Name: "db-net", Labels: map[string]string{"com.example": "keep"}},
+		{Name: "manual", Labels: map[string]string{"com.docker.compose.network": "manual"}},
+	})
+
+	want := []string{"manual", "acme_default", "db-net"}
+	if len(candidates) != len(want) {
+		t.Fatalf("candidates len = %d, want %d", len(candidates), len(want))
+	}
+	for i, wantName := range want {
+		if candidates[i] != wantName {
+			t.Fatalf("candidate[%d] = %q, want %q", i, candidates[i], wantName)
+		}
+	}
+}
+
 func mustWriteCLI(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

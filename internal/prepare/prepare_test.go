@@ -29,3 +29,20 @@ func TestRenderPromptContainsConstraintsAndFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPromptNoNetworkCandidates(t *testing.T) {
+	out, err := Render(Input{
+		Definition: workspace.Definition{
+			ID: "agw", Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+		},
+		Projects:          nil,
+		NetworkCandidates: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(out, "None detected") {
+		t.Fatalf("expected no candidates message, got:\n%s", out)
+	}
+}
