@@ -10,6 +10,8 @@ import (
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
+var statFile = os.Stat
+
 type State string
 
 const (
@@ -74,8 +76,11 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	report.add("prompt", CheckPass, promptPath)
 
 	composePath := filepath.Join(dir, "compose.yaml")
-	if _, err := os.Stat(composePath); err != nil {
-		return fail(&report, "compose.yaml", "compose.yaml missing", fmt.Sprintf("agw workspace apply %s", report.WorkspaceID), StateNeedsApply)
+	if _, err := statFile(composePath); err != nil {
+		if os.IsNotExist(err) {
+			return fail(&report, "compose.yaml", "compose.yaml missing", fmt.Sprintf("agw workspace apply %s", report.WorkspaceID), StateNeedsApply)
+		}
+		return fail(&report, "compose.yaml", err.Error(), fmt.Sprintf("fix generated workspace files for %s", report.WorkspaceID), StateBroken)
 	}
 	report.add("compose.yaml", CheckPass, composePath)
 
@@ -111,7 +116,7 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	for _, attachment := range selectedNetworks(located.Definition) {
 		name := strings.TrimSpace(attachment.Name)
 		if name == "" {
-			continue
+			return fail(&report, "external network", "selected network name must not be blank", "fix workspace definition", StateBroken)
 		}
 		key, network, ok := findComposeNetwork(composeFile.Networks, name)
 		if !ok || !network.External {

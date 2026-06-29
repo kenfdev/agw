@@ -69,6 +69,32 @@ func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
 	assertCheck(t, report, "compose.yaml", CheckFail)
 }
 
+func TestDiagnoseBrokenWhenComposeStatFails(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	previous := statFile
+	t.Cleanup(func() { statFile = previous })
+	statFile = func(string) (os.FileInfo, error) {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckDetail(t, report, "compose.yaml", CheckFail, "access denied")
+}
+
 func TestDiagnoseBrokenWhenComposeMalformed(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
 	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
@@ -113,6 +139,32 @@ func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 		t.Fatalf("State = %q, want %q", report.State, StateBroken)
 	}
 	assertCheck(t, report, "external network", CheckFail)
+}
+
+func TestDiagnoseBrokenWhenSelectedNetworkNameBlank(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: ""}}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckDetail(t, report, "external network", CheckFail, "selected network name must not be blank")
 }
 
 func TestDiagnoseBrokenWhenServiceMissing(t *testing.T) {
