@@ -18,6 +18,9 @@ type PathMapping struct {
 }
 
 func DefaultPath() (string, error) {
+	if path := os.Getenv("AGW_CONFIG"); path != "" {
+		return path, nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

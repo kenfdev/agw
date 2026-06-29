@@ -24,3 +24,22 @@ func TestNewConfigCommandInit(t *testing.T) {
 		t.Fatalf("WorkspaceRoots = %#v", loaded.WorkspaceRoots)
 	}
 }
+
+func TestNewConfigCommandInitUsesAGWConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env-config.yaml")
+	t.Setenv("AGW_CONFIG", path)
+	cmd := NewConfigCommand()
+	cmd.SetArgs([]string{"init", "--root", "/tmp/agw"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(loaded.WorkspaceRoots) != 1 || loaded.WorkspaceRoots[0] != "/tmp/agw" {
+		t.Fatalf("WorkspaceRoots = %#v", loaded.WorkspaceRoots)
+	}
+}

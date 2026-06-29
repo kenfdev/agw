@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestDefaultPathUsesAGWConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "custom-config.yaml")
+	t.Setenv("AGW_CONFIG", path)
+
+	got, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath() error = %v", err)
+	}
+	if got != path {
+		t.Fatalf("DefaultPath() = %q, want %q", got, path)
+	}
+}
+
 func TestSaveAndLoadConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	want := Config{

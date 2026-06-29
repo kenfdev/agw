@@ -23,6 +23,13 @@ agw up agw
 agw attach agw
 ```
 
+By default, AGW stores user configuration in the OS user config directory
+under `agw/config.yaml`. Set `AGW_CONFIG` to use a specific config file:
+
+```bash
+export AGW_CONFIG="$HOME/.config/agw/config.yaml"
+```
+
 ## Diagnose workspace state
 
 Use doctor to see what a workspace needs next:
