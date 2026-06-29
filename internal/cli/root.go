@@ -1,6 +1,11 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+
+	"github.com/kenfdev/agw/internal/tui"
+	"github.com/spf13/cobra"
+)
 
 func NewRootCommand(version string) *cobra.Command {
 	cmd := &cobra.Command{
@@ -20,6 +25,27 @@ func NewRootCommand(version string) *cobra.Command {
 		newLifecycleAttachCommand(),
 		newLifecycleStatusCommand(),
 		newLifecycleListCommand(),
+		newTUICommand(),
 	)
+	return cmd
+}
+
+func newTUICommand() *cobra.Command {
+	var configPath string
+	cmd := &cobra.Command{
+		Use:   "tui",
+		Short: "Open minimal workspace TUI",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			items, err := listDefinitions(configPath)
+			if err != nil {
+				return err
+			}
+			if err := tui.Run(items); err != nil {
+				return fmt.Errorf("tui failed: %w", err)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	return cmd
 }
