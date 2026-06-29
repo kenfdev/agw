@@ -39,6 +39,31 @@ func parseWorkspaceProject(value string) (string, string, string, error) {
 	return namePart, pathPart, mountPart, nil
 }
 
+func workspaceDefinitionPath(root, storage string) (string, error) {
+	if filepath.IsAbs(storage) {
+		return "", fmt.Errorf("--storage must be a relative path")
+	}
+
+	absRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", err
+	}
+
+	storagePath, err := filepath.Abs(filepath.Join(root, filepath.Clean(storage)))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absRoot, storagePath)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("--storage must not escape --root")
+	}
+
+	return storagePath, nil
+}
+
 func newWorkspaceNewCommand() *cobra.Command {
 	var (
 		id            string
@@ -73,6 +98,11 @@ func newWorkspaceNewCommand() *cobra.Command {
 				return fmt.Errorf("--workspace-root is required")
 			}
 
+			defRoot, err := workspaceDefinitionPath(root, storage)
+			if err != nil {
+				return err
+			}
+
 			projects := make([]workspace.Project, 0, len(projectFlags))
 			for _, raw := range projectFlags {
 				projectName, projectPath, projectMountPath, err := parseWorkspaceProject(raw)
@@ -97,7 +127,7 @@ func newWorkspaceNewCommand() *cobra.Command {
 				Projects: projects,
 			}
 
-			defPath := filepath.Join(root, storage, "agw.yaml")
+			defPath := filepath.Join(defRoot, "agw.yaml")
 			return workspace.SaveDefinition(defPath, def)
 		},
 	}
