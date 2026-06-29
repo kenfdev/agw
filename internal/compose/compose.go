@@ -12,8 +12,9 @@ type File struct {
 }
 
 type Service struct {
-	Build   any
-	Volumes []string
+	Build    any
+	Volumes  []string
+	Networks []string
 }
 
 type Network struct {
@@ -35,8 +36,9 @@ func Load(path string) (File, error) {
 
 func (s *Service) UnmarshalYAML(value *yaml.Node) error {
 	type rawService struct {
-		Build   any         `yaml:"build"`
-		Volumes []volumeRef `yaml:"volumes"`
+		Build    any         `yaml:"build"`
+		Volumes  []volumeRef `yaml:"volumes"`
+		Networks networkRefs `yaml:"networks"`
 	}
 	var raw rawService
 	if err := value.Decode(&raw); err != nil {
@@ -47,7 +49,46 @@ func (s *Service) UnmarshalYAML(value *yaml.Node) error {
 	for _, volume := range raw.Volumes {
 		s.Volumes = append(s.Volumes, volume.String())
 	}
+	s.Networks = append(s.Networks[:0], raw.Networks...)
 	return nil
+}
+
+type networkRefs []string
+
+func (r *networkRefs) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case 0:
+		*r = nil
+		return nil
+	case yaml.SequenceNode:
+		var raw []string
+		if err := value.Decode(&raw); err != nil {
+			return err
+		}
+		*r = append((*r)[:0], raw...)
+		return nil
+	case yaml.MappingNode:
+		out := make([]string, 0, len(value.Content)/2)
+		for i := 0; i+1 < len(value.Content); i += 2 {
+			out = append(out, value.Content[i].Value)
+		}
+		*r = out
+		return nil
+	case yaml.ScalarNode:
+		var raw string
+		if err := value.Decode(&raw); err != nil {
+			return err
+		}
+		if raw == "" {
+			*r = nil
+			return nil
+		}
+		*r = []string{raw}
+		return nil
+	default:
+		*r = nil
+		return nil
+	}
 }
 
 type volumeRef struct {

@@ -146,14 +146,18 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 		if name == "" {
 			continue
 		}
-		network, ok := findComposeNetwork(file.Networks, name)
+		key, network, ok := findComposeNetwork(file.Networks, name)
 		if !ok || !network.External {
 			return fmt.Errorf("selected network %s must be declared as external in compose.yaml", name)
 		}
-		if err := validateExternalNetwork(name, runner); err != nil {
+		if !serviceHasNetworkAttachment(service, key, network) {
+			return fmt.Errorf("service %s must attach to selected network %s", def.Container.Service, name)
+		}
+		resolvedName := composeNetworkName(key, network)
+		if err := validateExternalNetwork(resolvedName, runner); err != nil {
 			return err
 		}
-		checkedNetworks[name] = struct{}{}
+		checkedNetworks[resolvedName] = struct{}{}
 	}
 
 	for key, network := range file.Networks {
@@ -250,17 +254,14 @@ func selectedNetworks(def workspace.Definition) []workspace.NetworkAttachment {
 	return def.Networks.Attach
 }
 
-func findComposeNetwork(networks map[string]compose.Network, selected string) (compose.Network, bool) {
+func findComposeNetwork(networks map[string]compose.Network, selected string) (string, compose.Network, bool) {
 	for key, network := range networks {
-		name := network.Name
-		if name == "" {
-			name = key
-		}
+		name := composeNetworkName(key, network)
 		if key == selected || name == selected {
-			return network, true
+			return key, network, true
 		}
 	}
-	return compose.Network{}, false
+	return "", compose.Network{}, false
 }
 
 func validateExternalNetwork(name string, runner docker.Runner) error {
@@ -282,4 +283,21 @@ func hasVolumeMount(volumes []string, source, target string) bool {
 		}
 	}
 	return false
+}
+
+func serviceHasNetworkAttachment(service compose.Service, key string, network compose.Network) bool {
+	resolvedName := composeNetworkName(key, network)
+	for _, attached := range service.Networks {
+		if attached == key || attached == resolvedName {
+			return true
+		}
+	}
+	return false
+}
+
+func composeNetworkName(key string, network compose.Network) string {
+	if network.Name != "" {
+		return network.Name
+	}
+	return key
 }

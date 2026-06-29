@@ -17,12 +17,12 @@ type Model struct {
 }
 
 type Actions interface {
-	Status(workspace.LocatedDefinition) error
-	Build(workspace.LocatedDefinition) error
-	Up(workspace.LocatedDefinition) error
-	Down(workspace.LocatedDefinition) error
-	Attach(workspace.LocatedDefinition) error
-	Prepare(workspace.LocatedDefinition) error
+	Status(workspace.LocatedDefinition) (string, error)
+	Build(workspace.LocatedDefinition) (string, error)
+	Up(workspace.LocatedDefinition) (string, error)
+	Down(workspace.LocatedDefinition) (string, error)
+	Attach(workspace.LocatedDefinition) (string, error)
+	Prepare(workspace.LocatedDefinition) (string, error)
 }
 
 func NewModel(workspaces []workspace.LocatedDefinition) Model {
@@ -59,27 +59,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = len(m.workspaces) - 1
 			}
 		case "s":
-			m = m.runAction("status", func(item workspace.LocatedDefinition) error {
+			m = m.runAction("status", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Status(item)
 			})
 		case "b":
-			m = m.runAction("build", func(item workspace.LocatedDefinition) error {
+			m = m.runAction("build", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Build(item)
 			})
 		case "u":
-			m = m.runAction("up", func(item workspace.LocatedDefinition) error {
+			m = m.runAction("up", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Up(item)
 			})
 		case "d":
-			m = m.runAction("down", func(item workspace.LocatedDefinition) error {
+			m = m.runAction("down", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Down(item)
 			})
 		case "a":
-			m = m.runAction("attach", func(item workspace.LocatedDefinition) error {
+			m = m.runAction("attach", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Attach(item)
 			})
 		case "p":
-			m = m.runAction("prepare", func(item workspace.LocatedDefinition) error {
+			m = m.runAction("prepare", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Prepare(item)
 			})
 		}
@@ -111,7 +111,7 @@ func (m Model) View() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) runAction(name string, run func(workspace.LocatedDefinition) error) Model {
+func (m Model) runAction(name string, run func(workspace.LocatedDefinition) (string, error)) Model {
 	if m.actions == nil {
 		m.status = name + " failed: no actions configured"
 		return m
@@ -121,11 +121,15 @@ func (m Model) runAction(name string, run func(workspace.LocatedDefinition) erro
 		return m
 	}
 	item := m.workspaces[m.selected]
-	if err := run(item); err != nil {
+	result, err := run(item)
+	if err != nil {
 		m.status = name + " failed: " + err.Error()
 		return m
 	}
-	m.status = name + " ok: " + item.Definition.ID
+	if result == "" {
+		result = item.Definition.ID
+	}
+	m.status = name + " ok: " + result
 	return m
 }
 

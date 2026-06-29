@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -62,57 +63,57 @@ type tuiActions struct {
 	err io.Writer
 }
 
-func (a *tuiActions) Status(item workspace.LocatedDefinition) error {
+func (a *tuiActions) Status(item workspace.LocatedDefinition) (string, error) {
 	runner := newLifecycleRunner(a.out, a.err)
 	if _, err := fmt.Fprintln(a.out, "Workspace:", item.Definition.ID); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := fmt.Fprintln(a.out, "Service:", item.Definition.Container.Service); err != nil {
-		return err
+		return "", err
 	}
 	attachments := networkCandidates(item.Definition)
 	if len(attachments) == 0 {
 		_, err := fmt.Fprintln(a.out, "Networks: none")
-		return err
+		return "", err
 	}
 	for _, network := range attachments {
 		exists, err := runner.NetworkExists(network)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if _, err := fmt.Fprintf(a.out, "Network %s exists: %t\n", network, exists); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return "", nil
 }
 
-func (a *tuiActions) Build(item workspace.LocatedDefinition) error {
-	return newLifecycleRunner(a.out, a.err).Build(filepath.Dir(item.Path))
+func (a *tuiActions) Build(item workspace.LocatedDefinition) (string, error) {
+	return "", newLifecycleRunner(a.out, a.err).Build(filepath.Dir(item.Path))
 }
 
-func (a *tuiActions) Up(item workspace.LocatedDefinition) error {
-	return newLifecycleRunner(a.out, a.err).Up(filepath.Dir(item.Path))
+func (a *tuiActions) Up(item workspace.LocatedDefinition) (string, error) {
+	return "", newLifecycleRunner(a.out, a.err).Up(filepath.Dir(item.Path))
 }
 
-func (a *tuiActions) Down(item workspace.LocatedDefinition) error {
-	return newLifecycleRunner(a.out, a.err).Down(filepath.Dir(item.Path))
+func (a *tuiActions) Down(item workspace.LocatedDefinition) (string, error) {
+	return "", newLifecycleRunner(a.out, a.err).Down(filepath.Dir(item.Path))
 }
 
-func (a *tuiActions) Attach(item workspace.LocatedDefinition) error {
+func (a *tuiActions) Attach(item workspace.LocatedDefinition) (string, error) {
 	service := strings.TrimSpace(item.Definition.Container.Service)
 	if service == "" {
-		return fmt.Errorf("workspace %q has no service configured", item.Definition.ID)
+		return "", fmt.Errorf("workspace %q has no service configured", item.Definition.ID)
 	}
-	return newLifecycleRunner(a.out, a.err).Attach(filepath.Dir(item.Path), service)
+	return "", newLifecycleRunner(a.out, a.err).Attach(filepath.Dir(item.Path), service)
 }
 
-func (a *tuiActions) Prepare(item workspace.LocatedDefinition) error {
+func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
 	projectSnapshots := make([]scanner.ProjectSnapshot, 0, len(item.Definition.Projects))
 	for _, project := range item.Definition.Projects {
 		snapshot, err := scanner.ScanProject(project)
 		if err != nil {
-			return err
+			return "", err
 		}
 		projectSnapshots = append(projectSnapshots, snapshot)
 	}
@@ -129,8 +130,11 @@ func (a *tuiActions) Prepare(item workspace.LocatedDefinition) error {
 		NetworkCandidates: networkCandidatesForPrepare(item.Definition, availableNetworks),
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = fmt.Fprint(a.out, prompt)
-	return err
+	promptPath := filepath.Join(filepath.Dir(item.Path), "prompt.md")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
+		return "", err
+	}
+	return "wrote " + promptPath, nil
 }
