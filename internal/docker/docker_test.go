@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+// NetworkExists behavior: only "network not found" should return (false, nil);
+// daemon/permission/and other inspect failures should return an error.
 func TestNetworkExistsReturnsFalseForMissingNetwork(t *testing.T) {
 	old := runNetworkInspect
 	defer func() { runNetworkInspect = old }()
@@ -116,7 +118,6 @@ func TestAttachUsesDockerComposeExec(t *testing.T) {
 	if err := cli.Attach("/tmp/ws", "dev"); err != nil {
 		t.Fatal(err)
 	}
-	_ = got
 	want := []string{"docker", "compose", "exec", "dev", "bash"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
