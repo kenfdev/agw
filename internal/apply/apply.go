@@ -144,7 +144,7 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 	for _, attachment := range selectedNetworks(def) {
 		name := strings.TrimSpace(attachment.Name)
 		if name == "" {
-			continue
+			return fmt.Errorf("selected network name must not be blank")
 		}
 		key, network, ok := findComposeNetwork(file.Networks, name)
 		if !ok || !network.External {

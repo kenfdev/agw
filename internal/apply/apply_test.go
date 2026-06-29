@@ -222,6 +222,22 @@ func TestApplyChecksSelectedExternalNetworksExist(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsBlankSelectedNetworkName(t *testing.T) {
+	ws := t.TempDir()
+	gen := t.TempDir()
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n")
+	def := workspace.Definition{
+		Container: workspace.Container{Service: "dev"},
+		Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: ""}}},
+	}
+
+	err := Apply(ws, def, gen, &fakeRunner{})
+	if err == nil || !strings.Contains(err.Error(), "selected network name must not be blank") {
+		t.Fatalf("Apply() error = %v", err)
+	}
+}
+
 func TestApplyRequiresServiceToAttachSelectedNetwork(t *testing.T) {
 	ws := t.TempDir()
 	gen := t.TempDir()
