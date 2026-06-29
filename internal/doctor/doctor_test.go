@@ -69,6 +69,30 @@ func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
 	assertCheck(t, report, "compose.yaml", CheckFail)
 }
 
+func TestDiagnoseBrokenWhenComposeMalformed(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n[invalid\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckContains(t, report, "compose parse", CheckFail, "yaml:")
+}
+
 func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
 	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
