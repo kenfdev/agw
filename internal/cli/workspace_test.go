@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kenfdev/agw/internal/config"
+	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
@@ -84,3 +85,72 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceApplyUsesLocatedWorkspaceDirectory(t *testing.T) {
+	root := t.TempDir()
+	wsDir := filepath.Join(root, "workspaces", "agw")
+	genDir := filepath.Join(root, "generated")
+	if err := os.MkdirAll(genDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	def := workspace.Definition{
+		ID: "agw",
+		Container: workspace.Container{
+			Service: "dev",
+		},
+	}
+	if err := workspace.SaveDefinition(filepath.Join(wsDir, "agw.yaml"), def); err != nil {
+		t.Fatal(err)
+	}
+	mustWriteCLI(t, filepath.Join(genDir, "compose.yaml"), "services:\n  dev:\n    build: .\n")
+
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var composeDir string
+	oldRunner := newDockerRunner
+	newDockerRunner = func() docker.Runner {
+		return cliFakeRunner{composeDir: &composeDir}
+	}
+	defer func() { newDockerRunner = oldRunner }()
+
+	cmd := NewWorkspaceCommand()
+	cmd.SetArgs([]string{"apply", "agw", genDir, "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if composeDir != wsDir {
+		t.Fatalf("ComposeConfig dir = %q, want %q", composeDir, wsDir)
+	}
+	if _, err := os.Stat(filepath.Join(wsDir, "compose.yaml")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteCLI(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type cliFakeRunner struct {
+	composeDir *string
+}
+
+func (r cliFakeRunner) ComposeConfig(dir string) error {
+	*r.composeDir = dir
+	return nil
+}
+
+func (cliFakeRunner) NetworkExists(string) (bool, error) { return true, nil }

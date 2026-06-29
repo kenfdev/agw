@@ -6,17 +6,24 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kenfdev/agw/internal/apply"
 	"github.com/kenfdev/agw/internal/config"
+	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/prepare"
 	"github.com/kenfdev/agw/internal/scanner"
 	"github.com/kenfdev/agw/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
+var newDockerRunner = func() docker.Runner {
+	return docker.CLI{}
+}
+
 func NewWorkspaceCommand() *cobra.Command {
 	cmd := &cobra.Command{Use: "workspace", Short: "Manage AGW workspaces"}
 	cmd.AddCommand(newWorkspacePrepareCommand())
 	cmd.AddCommand(newWorkspaceNewCommand())
+	cmd.AddCommand(newWorkspaceApplyCommand())
 	return cmd
 }
 
@@ -199,6 +206,43 @@ func newWorkspacePrepareCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringVar(&outputPath, "output", "", "output file path")
+	return cmd
+}
+
+func newWorkspaceApplyCommand() *cobra.Command {
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:   "apply <workspace> <generated-dir>",
+		Short: "Apply generated workspace files",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := configPath
+			if path == "" {
+				var err error
+				path, err = config.DefaultPath()
+				if err != nil {
+					return err
+				}
+			}
+
+			cfg, err := config.Load(path)
+			if err != nil {
+				return err
+			}
+
+			registry := workspace.Registry{Roots: cfg.WorkspaceRoots}
+			located, err := registry.Find(args[0])
+			if err != nil {
+				return err
+			}
+
+			workspaceDir := filepath.Dir(located.Path)
+			return apply.Apply(workspaceDir, located.Definition, args[1], newDockerRunner())
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	return cmd
 }
 
