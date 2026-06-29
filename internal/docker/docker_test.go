@@ -153,6 +153,26 @@ func TestAttachFallsBackFromBashToZshToSh(t *testing.T) {
 	}
 }
 
+func TestServiceRunningUsesDockerComposePs(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	running, err := cli.ServiceRunning("/tmp/ws", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !running {
+		t.Fatal("expected running")
+	}
+	want := []string{"docker", "compose", "ps", "--status", "running", "-q", "dev"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
 func TestComposeCommandReceivesConfiguredStdin(t *testing.T) {
 	var out bytes.Buffer
 	cli := CLI{

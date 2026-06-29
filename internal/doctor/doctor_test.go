@@ -267,6 +267,28 @@ func TestDiagnoseBrokenWhenComposeConfigFails(t *testing.T) {
 	assertCheckDetail(t, report, "compose config", CheckFail, "compose config failed")
 }
 
+func TestDiagnoseRunningWhenServiceRunning(t *testing.T) {
+	located := validLocatedWithCompose(t)
+	report := Diagnose(located, fakeRunner{running: true})
+	if report.State != StateRunning {
+		t.Fatalf("State = %q, want %q", report.State, StateRunning)
+	}
+	if report.NextAction != "agw attach agw" {
+		t.Fatalf("NextAction = %q", report.NextAction)
+	}
+}
+
+func TestDiagnoseNotRunningWhenServiceNotRunning(t *testing.T) {
+	located := validLocatedWithCompose(t)
+	report := Diagnose(located, fakeRunner{running: false})
+	if report.State != StateNotRunning {
+		t.Fatalf("State = %q, want %q", report.State, StateNotRunning)
+	}
+	if report.NextAction != "agw build agw && agw up agw" {
+		t.Fatalf("NextAction = %q", report.NextAction)
+	}
+}
+
 func validWorkspaceDirs(t *testing.T) (string, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -275,6 +297,26 @@ func validWorkspaceDirs(t *testing.T) (string, string, string) {
 	mustMkdir(t, project)
 	mustMkdir(t, ws)
 	return root, project, ws
+}
+
+func validLocatedWithCompose(t *testing.T) workspace.LocatedDefinition {
+	t.Helper()
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+
+	return workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
 }
 
 func mustWrite(t *testing.T, path, content string) {

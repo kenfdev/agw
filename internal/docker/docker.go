@@ -65,6 +65,13 @@ func (c CLI) Attach(dir string, service string) error {
 	return lastErr
 }
 
+func (c CLI) ServiceRunning(dir string, service string) (bool, error) {
+	if err := c.compose(dir, "docker", "compose", "ps", "--status", "running", "-q", service); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (c CLI) compose(dir string, args ...string) error {
 	if c.Exec != nil {
 		return c.Exec(dir, args[0], args[1:]...)

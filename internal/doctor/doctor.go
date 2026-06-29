@@ -140,7 +140,25 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 		return fail(&report, "compose config", err.Error(), "fix compose.yaml", StateBroken)
 	}
 	report.add("compose config", CheckPass, "docker compose config")
-	report.State = StateReadyToBuild
+
+	running, err := runner.ServiceRunning(dir, located.Definition.Container.Service)
+	if err != nil {
+		report.add("runtime", CheckWarn, err.Error())
+		report.State = StateNotRunning
+		report.NextAction = fmt.Sprintf("agw build %s && agw up %s", report.WorkspaceID, report.WorkspaceID)
+		return report
+	}
+
+	if running {
+		report.add("runtime", CheckPass, "service is running")
+		report.State = StateRunning
+		report.NextAction = fmt.Sprintf("agw attach %s", report.WorkspaceID)
+		return report
+	}
+
+	report.add("runtime", CheckFail, "service is not running")
+	report.State = StateNotRunning
+	report.NextAction = fmt.Sprintf("agw build %s && agw up %s", report.WorkspaceID, report.WorkspaceID)
 	return report
 }
 
