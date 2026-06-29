@@ -78,7 +78,7 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	composePath := filepath.Join(dir, "compose.yaml")
 	if _, err := statFile(composePath); err != nil {
 		if os.IsNotExist(err) {
-			return fail(&report, "compose.yaml", "compose.yaml missing", fmt.Sprintf("agw workspace apply %s", report.WorkspaceID), StateNeedsApply)
+			return fail(&report, "compose.yaml", "compose.yaml missing", workspaceApplyAction(report.WorkspaceID), StateNeedsApply)
 		}
 		return fail(&report, "compose.yaml", err.Error(), fmt.Sprintf("fix generated workspace files for %s", report.WorkspaceID), StateBroken)
 	}
@@ -94,16 +94,17 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	}
 	report.add("service", CheckPass, located.Definition.Container.Service)
 
-	if err := checkBuildDockerfile(dir, service); err != nil {
+	dockerfileStatus, dockerfileDetail, err := checkBuildDockerfile(dir, service)
+	if err != nil {
 		state := StateBroken
 		next := "fix compose.yaml"
 		if os.IsNotExist(err) {
 			state = StateNeedsApply
-			next = fmt.Sprintf("agw workspace apply %s", report.WorkspaceID)
+			next = workspaceApplyAction(report.WorkspaceID)
 		}
 		return fail(&report, "Dockerfile", err.Error(), next, state)
 	}
-	report.add("Dockerfile", CheckPass, "build Dockerfile exists")
+	report.add("Dockerfile", dockerfileStatus, dockerfileDetail)
 
 	for _, project := range located.Definition.Projects {
 		if !hasVolumeMount(service.Volumes, project.Path, project.MountPath) {
@@ -128,7 +129,8 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 		resolvedName := composeNetworkName(key, network)
 		exists, err := runner.NetworkExists(resolvedName)
 		if err != nil {
-			return fail(&report, "external network", err.Error(), "fix Docker network", StateBroken)
+			report.add("external network", CheckWarn, err.Error())
+			continue
 		}
 		if !exists {
 			return fail(&report, "external network", fmt.Sprintf("external network %s not found", resolvedName), "create or select an existing Docker network", StateBroken)
@@ -173,10 +175,10 @@ func fail(report *Report, name, detail, next string, state State) Report {
 	return *report
 }
 
-func checkBuildDockerfile(workspaceDir string, service compose.Service) error {
+func checkBuildDockerfile(workspaceDir string, service compose.Service) (CheckStatus, string, error) {
 	contextDir, dockerfile, ok := buildPaths(service.Build)
 	if !ok {
-		return nil
+		return CheckSkip, "service has no build", nil
 	}
 	if contextDir == "" {
 		contextDir = "."
@@ -186,16 +188,20 @@ func checkBuildDockerfile(workspaceDir string, service compose.Service) error {
 	}
 	path := filepath.Join(workspaceDir, contextDir, dockerfile)
 	if err := ensureInside(workspaceDir, path); err != nil {
-		return err
+		return "", "", err
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	if info.IsDir() {
-		return fmt.Errorf("%s not found for service build: is a directory", dockerfile)
+		return "", "", fmt.Errorf("%s not found for service build: is a directory", dockerfile)
 	}
-	return nil
+	return CheckPass, "build Dockerfile exists", nil
+}
+
+func workspaceApplyAction(workspaceID string) string {
+	return fmt.Sprintf("agw workspace apply %s <generated-dir>", workspaceID)
 }
 
 func buildPaths(build any) (string, string, bool) {

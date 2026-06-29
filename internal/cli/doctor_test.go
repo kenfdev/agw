@@ -45,6 +45,26 @@ func TestDoctorAllPrintsMultipleWorkspaces(t *testing.T) {
 	}
 }
 
+func TestDoctorCommandSuggestsMatchingWorkspaceIDs(t *testing.T) {
+	_, configPath := createDoctorFixture(t, "agw-api", "agw-web", "other")
+	cmd := NewRootCommand("test")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"doctor", "agw", "--config", configPath})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "workspace not found") {
+		t.Fatalf("error = %q", err)
+	}
+	if !strings.Contains(err.Error(), "did you mean: agw-api, agw-web") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func createDoctorFixture(t *testing.T, ids ...string) (string, string) {
 	t.Helper()
 	root := t.TempDir()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
@@ -43,7 +44,7 @@ func newDoctorCommand() *cobra.Command {
 				}
 				return nil
 			}
-			located, err := findLocatedDefinition(configPath, args[0])
+			located, err := findDoctorDefinition(configPath, args[0])
 			if err != nil {
 				return err
 			}
@@ -53,6 +54,35 @@ func newDoctorCommand() *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().BoolVar(&all, "all", false, "diagnose all known workspaces")
 	return cmd
+}
+
+func findDoctorDefinition(path, workspaceID string) (workspace.LocatedDefinition, error) {
+	located, err := findLocatedDefinition(path, workspaceID)
+	if err == nil {
+		return located, nil
+	}
+	if err.Error() != "workspace not found" {
+		return workspace.LocatedDefinition{}, err
+	}
+
+	items, listErr := listDefinitions(path)
+	if listErr != nil {
+		return workspace.LocatedDefinition{}, err
+	}
+
+	query := strings.ToLower(workspaceID)
+	var matches []string
+	for _, item := range items {
+		id := item.Definition.ID
+		if strings.Contains(strings.ToLower(id), query) {
+			matches = append(matches, id)
+		}
+	}
+	sort.Strings(matches)
+	if len(matches) == 0 {
+		return workspace.LocatedDefinition{}, err
+	}
+	return workspace.LocatedDefinition{}, fmt.Errorf("workspace not found; did you mean: %s", strings.Join(matches, ", "))
 }
 
 func runDoctorCommand(cmd *cobra.Command, located workspace.LocatedDefinition) error {

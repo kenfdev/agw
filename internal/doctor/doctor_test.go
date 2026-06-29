@@ -67,6 +67,9 @@ func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
 		t.Fatalf("State = %q, want %q", report.State, StateNeedsApply)
 	}
 	assertCheck(t, report, "compose.yaml", CheckFail)
+	if report.NextAction != "agw workspace apply agw <generated-dir>" {
+		t.Fatalf("NextAction = %q", report.NextAction)
+	}
 }
 
 func TestDiagnoseBrokenWhenComposeStatFails(t *testing.T) {
@@ -239,6 +242,52 @@ func TestDiagnoseNeedsApplyWhenDockerfileMissing(t *testing.T) {
 		t.Fatalf("State = %q, want %q", report.State, StateNeedsApply)
 	}
 	assertCheckContains(t, report, "Dockerfile", CheckFail, "no such file")
+	if report.NextAction != "agw workspace apply agw <generated-dir>" {
+		t.Fatalf("NextAction = %q", report.NextAction)
+	}
+}
+
+func TestDiagnoseSkipsDockerfileCheckWhenServiceHasNoBuild(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    image: alpine:latest\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{running: false})
+
+	assertCheckDetail(t, report, "Dockerfile", CheckSkip, "service has no build")
+}
+
+func TestDiagnoseWarnsWhenNetworkInspectFails(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf("services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: target_default\n", project))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID: "agw", Container: workspace.Container{Service: "dev"},
+			Projects: []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Networks: &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "target_default"}}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{networkErr: errors.New("docker unavailable"), running: false})
+
+	if report.State != StateNotRunning {
+		t.Fatalf("State = %q, want %q", report.State, StateNotRunning)
+	}
+	assertCheckDetail(t, report, "external network", CheckWarn, "docker unavailable")
 }
 
 func TestDiagnoseBrokenWhenComposeConfigFails(t *testing.T) {
@@ -332,12 +381,16 @@ func mustWrite(t *testing.T, path, content string) {
 type fakeRunner struct {
 	composeErr error
 	networks   map[string]bool
+	networkErr error
 	running    bool
 	runtimeErr error
 }
 
 func (r fakeRunner) ComposeConfig(string) error { return r.composeErr }
 func (r fakeRunner) NetworkExists(name string) (bool, error) {
+	if r.networkErr != nil {
+		return false, r.networkErr
+	}
 	if r.networks == nil {
 		return true, nil
 	}
