@@ -11,8 +11,10 @@ import (
 func TestScanProjectIncludesMajorConfigAndExcludesEnv(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "package.json"), `{"scripts":{"dev":"vite"}}`)
+	mustWrite(t, filepath.Join(dir, ".devcontainer", "devcontainer.json"), `{"name":"dev-container"}`)
 	mustWrite(t, filepath.Join(dir, ".env"), "TOKEN=secret")
 	mustWrite(t, filepath.Join(dir, ".env.example"), "TOKEN=")
+	mustWrite(t, filepath.Join(dir, ".hiddenconfig"), "secret-config=1")
 
 	snap, err := ScanProject(workspace.Project{Name: "web", Path: dir, MountPath: "/workspace/web"})
 	if err != nil {
@@ -24,8 +26,14 @@ func TestScanProjectIncludesMajorConfigAndExcludesEnv(t *testing.T) {
 	if !hasFile(snap.Files, ".env.example") {
 		t.Fatalf("missing .env.example: %#v", snap.Files)
 	}
+	if !hasFile(snap.Files, ".devcontainer/devcontainer.json") {
+		t.Fatalf("missing .devcontainer/devcontainer.json: %#v", snap.Files)
+	}
 	if hasFile(snap.Files, ".env") {
 		t.Fatalf("secret .env was included")
+	}
+	if hasFile(snap.Files, ".hiddenconfig") {
+		t.Fatalf("unrelated hidden file was included: %#v", snap.Files)
 	}
 }
 

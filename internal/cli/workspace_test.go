@@ -35,6 +35,21 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wsDir, "go.mod"), []byte("module example.com/agw"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(wsDir, ".devcontainer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, ".devcontainer", "devcontainer.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, ".env"), []byte("TOKEN=secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, ".env.example"), []byte("TOKEN="), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, ".hiddenconfig"), []byte("TOKEN=secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cfgPath := filepath.Join(root, "config.yaml")
 	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
@@ -56,6 +71,16 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 	for _, want := range []string{"agw", "go.mod", "acme_default"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	for _, forbidden := range []string{"#### `.env`", "#### `.hiddenconfig`"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("forbidden file included in output: %q", forbidden)
+		}
+	}
+	for _, allowed := range []string{"#### `.env.example`", "#### `.devcontainer/devcontainer.json`"} {
+		if !strings.Contains(out, allowed) {
+			t.Fatalf("allowed hidden file missing in output: %q", allowed)
 		}
 	}
 }
