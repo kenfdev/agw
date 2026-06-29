@@ -37,6 +37,12 @@ var runNetworkList = func() ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
+var runComposePs = func(dir string, service string) ([]byte, error) {
+	cmd := exec.Command("docker", "compose", "ps", "--status", "running", "-q", service)
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
+}
+
 func (c CLI) ComposeConfig(dir string) error {
 	return c.compose(dir, "docker", "compose", "config")
 }
@@ -66,10 +72,11 @@ func (c CLI) Attach(dir string, service string) error {
 }
 
 func (c CLI) ServiceRunning(dir string, service string) (bool, error) {
-	if err := c.compose(dir, "docker", "compose", "ps", "--status", "running", "-q", service); err != nil {
+	out, err := runComposePs(dir, service)
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 func (c CLI) compose(dir string, args ...string) error {

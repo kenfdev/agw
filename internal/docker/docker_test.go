@@ -155,12 +155,14 @@ func TestAttachFallsBackFromBashToZshToSh(t *testing.T) {
 
 func TestServiceRunningUsesDockerComposePs(t *testing.T) {
 	var got []string
-	cli := CLI{Exec: func(dir string, name string, args ...string) error {
-		_ = dir
-		got = append([]string{name}, args...)
-		return nil
-	}}
-	running, err := cli.ServiceRunning("/tmp/ws", "dev")
+	old := runComposePs
+	defer func() { runComposePs = old }()
+
+	runComposePs = func(dir string, service string) ([]byte, error) {
+		got = append([]string{"docker", "compose", "ps", "--status", "running", "-q", service})
+		return []byte("container-id\n"), nil
+	}
+	running, err := CLI{}.ServiceRunning("/tmp/ws", "dev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,6 +172,40 @@ func TestServiceRunningUsesDockerComposePs(t *testing.T) {
 	want := []string{"docker", "compose", "ps", "--status", "running", "-q", "dev"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestServiceRunningReturnsTrueForNonEmptyOutput(t *testing.T) {
+	old := runComposePs
+	defer func() { runComposePs = old }()
+
+	runComposePs = func(_ string, _ string) ([]byte, error) {
+		return []byte("container-id\n"), nil
+	}
+
+	running, err := CLI{}.ServiceRunning("/tmp/ws", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !running {
+		t.Fatal("expected running")
+	}
+}
+
+func TestServiceRunningReturnsFalseForEmptyOutput(t *testing.T) {
+	old := runComposePs
+	defer func() { runComposePs = old }()
+
+	runComposePs = func(_ string, _ string) ([]byte, error) {
+		return []byte{}, nil
+	}
+
+	running, err := CLI{}.ServiceRunning("/tmp/ws", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running {
+		t.Fatal("expected not running")
 	}
 }
 
