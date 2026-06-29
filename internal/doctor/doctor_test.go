@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,68 @@ func TestDiagnoseBrokenWhenProjectPathMissing(t *testing.T) {
 		t.Fatalf("State = %q, want %q", report.State, StateBroken)
 	}
 	assertCheck(t, report, "project path", CheckFail)
+}
+
+func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	mustMkdir(t, project)
+	ws := filepath.Join(root, "ws")
+	mustMkdir(t, ws)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{ID: "agw", Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}}},
+		Path:       filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{})
+
+	if report.State != StateNeedsApply {
+		t.Fatalf("State = %q, want %q", report.State, StateNeedsApply)
+	}
+	assertCheck(t, report, "compose.yaml", CheckFail)
+}
+
+func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf("services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: target_default\n", project))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID: "agw", Container: workspace.Container{Service: "dev"},
+			Projects: []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Networks: &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "target_default"}}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{networks: map[string]bool{"target_default": false}})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheck(t, report, "external network", CheckFail)
+}
+
+func validWorkspaceDirs(t *testing.T) (string, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	ws := filepath.Join(root, "ws")
+	mustMkdir(t, project)
+	mustMkdir(t, ws)
+	return root, project, ws
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type fakeRunner struct {

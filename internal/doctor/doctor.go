@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/kenfdev/agw/internal/compose"
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
@@ -70,9 +72,185 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 		return report
 	}
 	report.add("prompt", CheckPass, promptPath)
+
+	composePath := filepath.Join(dir, "compose.yaml")
+	if _, err := os.Stat(composePath); err != nil {
+		return fail(&report, "compose.yaml", "compose.yaml missing", fmt.Sprintf("agw workspace apply %s", report.WorkspaceID), StateNeedsApply)
+	}
+	report.add("compose.yaml", CheckPass, composePath)
+
+	composeFile, err := compose.Load(composePath)
+	if err != nil {
+		return fail(&report, "compose.yaml", err.Error(), "fix compose.yaml", StateBroken)
+	}
+	service, ok := composeFile.Services[located.Definition.Container.Service]
+	if !ok {
+		return fail(&report, "service", fmt.Sprintf("service %s not found in compose.yaml", located.Definition.Container.Service), "run agw workspace apply", StateBroken)
+	}
+	report.add("service", CheckPass, located.Definition.Container.Service)
+
+	if err := checkBuildDockerfile(dir, service); err != nil {
+		state := StateBroken
+		next := "fix compose.yaml"
+		if os.IsNotExist(err) {
+			state = StateNeedsApply
+			next = fmt.Sprintf("agw workspace apply %s", report.WorkspaceID)
+		}
+		return fail(&report, "Dockerfile", err.Error(), next, state)
+	}
+	report.add("Dockerfile", CheckPass, "build Dockerfile exists")
+
+	for _, project := range located.Definition.Projects {
+		if !hasVolumeMount(service.Volumes, project.Path, project.MountPath) {
+			required := project.Path + ":" + project.MountPath
+			return fail(&report, "project mount", fmt.Sprintf("missing volume %s for project %s", required, project.Name), "run agw workspace apply", StateBroken)
+		}
+		report.add("project mount", CheckPass, project.Name)
+	}
+
+	for _, attachment := range selectedNetworks(located.Definition) {
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			continue
+		}
+		key, network, ok := findComposeNetwork(composeFile.Networks, name)
+		if !ok || !network.External {
+			return fail(&report, "external network", fmt.Sprintf("selected network %s must be declared as external in compose.yaml", name), "run agw workspace apply", StateBroken)
+		}
+		if !serviceHasNetworkAttachment(service, key, network) {
+			return fail(&report, "external network", fmt.Sprintf("service %s must attach to selected network %s", located.Definition.Container.Service, name), "run agw workspace apply", StateBroken)
+		}
+		resolvedName := composeNetworkName(key, network)
+		exists, err := runner.NetworkExists(resolvedName)
+		if err != nil {
+			return fail(&report, "external network", err.Error(), "fix Docker network", StateBroken)
+		}
+		if !exists {
+			return fail(&report, "external network", fmt.Sprintf("external network %s not found", resolvedName), "create or select an existing Docker network", StateBroken)
+		}
+		report.add("external network", CheckPass, resolvedName)
+	}
+
+	if err := runner.ComposeConfig(dir); err != nil {
+		return fail(&report, "compose config", err.Error(), "fix compose.yaml", StateBroken)
+	}
+	report.add("compose config", CheckPass, "docker compose config")
+	report.State = StateReadyToBuild
 	return report
 }
 
 func (r *Report) add(name string, status CheckStatus, detail string) {
 	r.Checks = append(r.Checks, Check{Name: name, Status: status, Detail: detail})
+}
+
+func fail(report *Report, name, detail, next string, state State) Report {
+	report.add(name, CheckFail, detail)
+	report.State = state
+	report.NextAction = next
+	return *report
+}
+
+func checkBuildDockerfile(workspaceDir string, service compose.Service) error {
+	contextDir, dockerfile, ok := buildPaths(service.Build)
+	if !ok {
+		return nil
+	}
+	if contextDir == "" {
+		contextDir = "."
+	}
+	if dockerfile == "" {
+		dockerfile = "Dockerfile"
+	}
+	path := filepath.Join(workspaceDir, contextDir, dockerfile)
+	if err := ensureInside(workspaceDir, path); err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s not found for service build: is a directory", dockerfile)
+	}
+	return nil
+}
+
+func buildPaths(build any) (string, string, bool) {
+	switch value := build.(type) {
+	case nil:
+		return "", "", false
+	case string:
+		return value, "Dockerfile", true
+	case map[string]any:
+		return stringMapValue(value, "context"), stringMapValue(value, "dockerfile"), true
+	case map[any]any:
+		return anyMapValue(value, "context"), anyMapValue(value, "dockerfile"), true
+	default:
+		return "", "", false
+	}
+}
+
+func stringMapValue(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func anyMapValue(values map[any]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func ensureInside(root, path string) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("path escapes workspace directory: %s", path)
+	}
+	return nil
+}
+
+func hasVolumeMount(volumes []string, source, target string) bool {
+	for _, volume := range volumes {
+		parts := strings.Split(volume, ":")
+		if len(parts) >= 2 && parts[0] == source && parts[1] == target {
+			return true
+		}
+	}
+	return false
+}
+
+func selectedNetworks(def workspace.Definition) []workspace.NetworkAttachment {
+	if def.Networks == nil {
+		return nil
+	}
+	return def.Networks.Attach
+}
+
+func findComposeNetwork(networks map[string]compose.Network, selected string) (string, compose.Network, bool) {
+	for key, network := range networks {
+		name := composeNetworkName(key, network)
+		if key == selected || name == selected {
+			return key, network, true
+		}
+	}
+	return "", compose.Network{}, false
+}
+
+func serviceHasNetworkAttachment(service compose.Service, key string, network compose.Network) bool {
+	resolvedName := composeNetworkName(key, network)
+	for _, attached := range service.Networks {
+		if attached == key || attached == resolvedName {
+			return true
+		}
+	}
+	return false
+}
+
+func composeNetworkName(key string, network compose.Network) string {
+	if network.Name != "" {
+		return network.Name
+	}
+	return key
 }
