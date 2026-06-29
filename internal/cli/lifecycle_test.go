@@ -267,3 +267,7 @@ func (r *lifecycleFakeRunner) NetworkExists(name string) (bool, error) {
 	}
 	return r.networkExists[name], nil
 }
+
+func (r *lifecycleFakeRunner) ServiceRunning(dir string, service string) (bool, error) {
+	return false, nil
+}

@@ -20,6 +20,7 @@ type lifecycleRunner interface {
 	Attach(dir string, service string) error
 	ComposeConfig(dir string) error
 	NetworkExists(name string) (bool, error)
+	ServiceRunning(dir string, service string) (bool, error)
 }
 
 var newLifecycleRunner = func(stdout, stderr io.Writer) lifecycleRunner {
