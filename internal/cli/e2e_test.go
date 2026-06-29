@@ -14,13 +14,10 @@ import (
 
 func TestEndToEndWorkspaceWorkflow(t *testing.T) {
 	root := t.TempDir()
-	projectPath := "/tmp/agw-e2e-project"
+	projectPath := filepath.Join(root, "agw-e2e-project")
 	if err := os.MkdirAll(projectPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = os.RemoveAll(projectPath)
-	})
 
 	if err := os.WriteFile(filepath.Join(projectPath, "go.mod"), []byte("module github.com/kenfdev/agw\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -34,7 +31,28 @@ func TestEndToEndWorkspaceWorkflow(t *testing.T) {
 	if !ok {
 		t.Fatal("unable to resolve test file path")
 	}
-	generatedDir := filepath.Clean(filepath.Join(filepath.Dir(filePath), "..", "..", "testdata", "simple-generated"))
+	fixtureDir := filepath.Clean(filepath.Join(filepath.Dir(filePath), "..", "..", "testdata", "simple-generated"))
+	generatedDir := filepath.Join(root, "generated")
+	if err := os.MkdirAll(generatedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixtureComposePath := filepath.Join(fixtureDir, "compose.yaml")
+	fixtureCompose, err := os.ReadFile(fixtureComposePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureCompose = bytes.ReplaceAll(fixtureCompose, []byte("/tmp/agw-e2e-project"), []byte(projectPath))
+	if err := os.WriteFile(filepath.Join(generatedDir, "compose.yaml"), fixtureCompose, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureDockerfile := filepath.Join(fixtureDir, "Dockerfile")
+	dockerfile, err := os.ReadFile(fixtureDockerfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(generatedDir, "Dockerfile"), dockerfile, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := NewRootCommand("test")
 
