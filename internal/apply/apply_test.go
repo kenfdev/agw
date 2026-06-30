@@ -16,7 +16,7 @@ func TestApplyCopiesAndValidatesCompose(t *testing.T) {
 	gen := t.TempDir()
 	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\n")
-	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Path: "/src/agw", MountPath: "/workspace"}}}
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
 	if err := Apply(ws, def, gen, &fakeRunner{}); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestApplyBacksUpExistingRegularFiles(t *testing.T) {
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), "old compose\n")
 	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\n")
-	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Path: "/src/agw", MountPath: "/workspace"}}}
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
 
 	if err := Apply(ws, def, gen, &fakeRunner{}); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestApplyRejectsMissingProjectMount(t *testing.T) {
 	gen := t.TempDir()
 	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /other:/workspace\n")
-	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Path: "/src/agw", MountPath: "/workspace"}}}
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
 
 	err := Apply(ws, def, gen, &fakeRunner{})
 	if err == nil || !strings.Contains(err.Error(), "missing volume /src/agw:/workspace") {
@@ -166,7 +166,7 @@ func TestApplyAcceptsVolumeOptions(t *testing.T) {
 	gen := t.TempDir()
 	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace:cached\n")
-	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Path: "/src/agw", MountPath: "/workspace"}}}
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
 
 	if err := Apply(ws, def, gen, &fakeRunner{}); err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestApplyRejectsMissingExternalNetwork(t *testing.T) {
 	gen := t.TempDir()
 	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\nnetworks:\n  app:\n    external: true\n    name: acme_default\n")
-	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Path: "/src/agw", MountPath: "/workspace"}}}
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
 
 	err := Apply(ws, def, gen, &fakeRunner{missingNetworks: map[string]bool{"acme_default": true}})
 	if err == nil || !strings.Contains(err.Error(), "external network acme_default not found") {

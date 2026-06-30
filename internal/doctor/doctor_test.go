@@ -17,8 +17,8 @@ func TestDiagnoseNeedsPrepareWhenPromptMissing(t *testing.T) {
 	mustMkdir(t, project)
 	located := locatedDefinition(root, workspace.Definition{
 		ID:        "agw",
-		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
-		Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 	})
 
 	report := Diagnose(located, fakeRunner{})
@@ -37,8 +37,8 @@ func TestDiagnoseBrokenWhenProjectPathMissing(t *testing.T) {
 	root := t.TempDir()
 	located := locatedDefinition(root, workspace.Definition{
 		ID:        "agw",
-		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
-		Projects:  []workspace.Project{{Name: "agw", Path: filepath.Join(root, "missing"), MountPath: "/workspace"}},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects:  []workspace.Project{{Name: "agw", HostPath: filepath.Join(root, "missing"), ContainerPath: "/workspace"}},
 	})
 
 	report := Diagnose(located, fakeRunner{})
@@ -57,7 +57,7 @@ func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
 	mustMkdir(t, ws)
 	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	located := workspace.LocatedDefinition{
-		Definition: workspace.Definition{ID: "agw", Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}}},
+		Definition: workspace.Definition{ID: "agw", Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}}},
 		Path:       filepath.Join(ws, "agw.yaml"),
 	}
 
@@ -79,7 +79,7 @@ func TestDiagnoseBrokenWhenComposeStatFails(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -109,7 +109,7 @@ func TestDiagnoseBrokenWhenComposeMalformed(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -130,7 +130,7 @@ func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 	located := workspace.LocatedDefinition{
 		Definition: workspace.Definition{
 			ID: "agw", Container: workspace.Container{Service: "dev"},
-			Projects: []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects: []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 			Networks: &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "target_default"}}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
@@ -159,7 +159,7 @@ func TestDiagnoseBrokenWhenSelectedNetworkNameBlank(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 			Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: ""}}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
@@ -185,7 +185,7 @@ func TestDiagnoseBrokenWhenServiceMissing(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -210,7 +210,7 @@ func TestDiagnoseBrokenWhenMountMissing(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -234,7 +234,7 @@ func TestDiagnoseNeedsApplyWhenDockerfileMissing(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -261,7 +261,7 @@ func TestDiagnoseSkipsDockerfileCheckWhenServiceHasNoBuild(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -287,7 +287,7 @@ func TestDiagnoseWarnsWhenNetworkInspectFails(t *testing.T) {
 	located := workspace.LocatedDefinition{
 		Definition: workspace.Definition{
 			ID: "agw", Container: workspace.Container{Service: "dev"},
-			Projects: []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects: []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 			Networks: &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "target_default"}}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
@@ -313,7 +313,7 @@ func TestDiagnoseBrokenWhenComposeConfigFails(t *testing.T) {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}
@@ -373,7 +373,7 @@ func validLocatedWithCompose(t *testing.T) workspace.LocatedDefinition {
 		Definition: workspace.Definition{
 			ID:        "agw",
 			Container: workspace.Container{Service: "dev"},
-			Projects:  []workspace.Project{{Name: "agw", Path: project, MountPath: "/workspace"}},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
 		},
 		Path: filepath.Join(ws, "agw.yaml"),
 	}

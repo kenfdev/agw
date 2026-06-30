@@ -36,25 +36,25 @@ func NewWorkspaceCommand() *cobra.Command {
 func parseWorkspaceProject(value string) (string, string, string, error) {
 	namePart, rest, found := strings.Cut(value, "=")
 	if !found {
-		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=path:mountPath)", value)
+		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=hostPath:containerPath)", value)
 	}
 	if namePart == "" {
-		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=path:mountPath)", value)
+		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=hostPath:containerPath)", value)
 	}
 
 	pathPart, mountPart, found := strings.Cut(rest, ":")
 	if !found {
-		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=path:mountPath)", value)
+		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=hostPath:containerPath)", value)
 	}
 	if pathPart == "" || mountPart == "" {
-		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=path:mountPath)", value)
+		return "", "", "", fmt.Errorf("invalid project flag value %q (expected name=hostPath:containerPath)", value)
 	}
 	return namePart, pathPart, mountPart, nil
 }
 
 func workspaceDefinitionPath(root, storage string) (string, error) {
 	if filepath.IsAbs(storage) {
-		return "", fmt.Errorf("--storage must be a relative path")
+		return "", fmt.Errorf("--workspace-dir must be a relative path")
 	}
 
 	absRoot, err := filepath.Abs(filepath.Clean(root))
@@ -71,7 +71,7 @@ func workspaceDefinitionPath(root, storage string) (string, error) {
 		return "", err
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("--storage must not escape --root")
+		return "", fmt.Errorf("--workspace-dir must not escape --root")
 	}
 
 	return storagePath, nil
@@ -107,13 +107,13 @@ func newWorkspaceNewCommand() *cobra.Command {
 				return fmt.Errorf("--root is required")
 			}
 			if storage == "" {
-				return fmt.Errorf("--storage is required")
+				return fmt.Errorf("--workspace-dir is required")
 			}
 			if service == "" {
 				return fmt.Errorf("--service is required")
 			}
 			if workspaceRoot == "" {
-				return fmt.Errorf("--workspace-root is required")
+				return fmt.Errorf("--workdir is required")
 			}
 
 			defRoot, err := workspaceDefinitionPath(root, storage)
@@ -128,19 +128,19 @@ func newWorkspaceNewCommand() *cobra.Command {
 					return err
 				}
 				projects = append(projects, workspace.Project{
-					Name:      projectName,
-					Path:      projectPath,
-					MountPath: projectMountPath,
+					Name:          projectName,
+					HostPath:      projectPath,
+					ContainerPath: projectMountPath,
 				})
 			}
 
 			def := workspace.Definition{
-				ID:      id,
-				Name:    name,
-				Storage: workspace.Storage{Path: storage},
+				ID:        id,
+				Name:      name,
+				Workspace: workspace.Workspace{Dir: storage},
 				Container: workspace.Container{
-					Service:       service,
-					WorkspaceRoot: workspaceRoot,
+					Service: service,
+					Workdir: workspaceRoot,
 				},
 				Projects: projects,
 			}
@@ -153,12 +153,16 @@ func newWorkspaceNewCommand() *cobra.Command {
 	cmd.Flags().StringVar(&id, "id", "", "workspace id")
 	cmd.Flags().StringVar(&name, "name", "", "workspace name")
 	cmd.Flags().StringVar(&root, "root", "", "AGW root directory")
-	cmd.Flags().StringVar(&storage, "storage", "", "workspace storage path")
+	cmd.Flags().StringVar(&storage, "workspace-dir", "", "AGW workspace directory under --root")
+	cmd.Flags().StringVar(&storage, "storage", "", "legacy alias for --workspace-dir")
 	cmd.Flags().StringVar(&from, "from", "", "project path to create a standalone workspace from")
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
-	cmd.Flags().StringSliceVar(&projectFlags, "project", nil, "project definitions in name=path:mountPath format")
+	cmd.Flags().StringSliceVar(&projectFlags, "project", nil, "project definitions in name=hostPath:containerPath format")
 	cmd.Flags().StringVar(&service, "service", "", "container service name")
-	cmd.Flags().StringVar(&workspaceRoot, "workspace-root", "", "container workspace root path")
+	cmd.Flags().StringVar(&workspaceRoot, "workdir", "", "container working directory")
+	cmd.Flags().StringVar(&workspaceRoot, "workspace-root", "", "legacy alias for --workdir")
+	_ = cmd.Flags().MarkDeprecated("storage", "use --workspace-dir instead")
+	_ = cmd.Flags().MarkDeprecated("workspace-root", "use --workdir instead")
 	return cmd
 }
 
@@ -222,17 +226,17 @@ func runWorkspaceNewFrom(cmd *cobra.Command, configPath, root, from, id, name, s
 		return err
 	}
 	def := workspace.Definition{
-		ID:      id,
-		Name:    name,
-		Storage: workspace.Storage{Path: storage},
+		ID:        id,
+		Name:      name,
+		Workspace: workspace.Workspace{Dir: storage},
 		Container: workspace.Container{
-			Service:       service,
-			WorkspaceRoot: workspaceRoot,
+			Service: service,
+			Workdir: workspaceRoot,
 		},
 		Projects: []workspace.Project{{
-			Name:      id,
-			Path:      projectPath,
-			MountPath: workspaceRoot,
+			Name:          id,
+			HostPath:      projectPath,
+			ContainerPath: workspaceRoot,
 		}},
 	}
 	defPath := filepath.Join(defRoot, "agw.yaml")

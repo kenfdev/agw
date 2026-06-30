@@ -27,11 +27,11 @@ func Render(input Input) (string, error) {
 	fmt.Fprintln(&b, "If important information is missing, ask questions before generating files.")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Service: `%s`\n\n", def.Container.Service)
-	fmt.Fprintf(&b, "Workspace root: `%s`\n\n", def.Container.WorkspaceRoot)
+	fmt.Fprintf(&b, "Container workdir: `%s`\n\n", def.Container.Workdir)
 
 	fmt.Fprintln(&b, "## Projects")
 	for _, p := range def.Projects {
-		fmt.Fprintf(&b, "- `%s`: local `%s`, mount `%s`\n", p.Name, p.Path, p.MountPath)
+		fmt.Fprintf(&b, "- `%s`: host `%s`, container `%s`\n", p.Name, p.HostPath, p.ContainerPath)
 	}
 
 	fmt.Fprintln(&b)

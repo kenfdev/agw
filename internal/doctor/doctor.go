@@ -57,14 +57,14 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	report := Report{WorkspaceID: located.Definition.ID, State: StateDefined}
 	report.add("workspace definition", CheckPass, located.Path)
 	for _, project := range located.Definition.Projects {
-		info, err := os.Stat(project.Path)
+		info, err := os.Stat(project.HostPath)
 		if err != nil || !info.IsDir() {
-			report.add("project path", CheckFail, project.Path)
+			report.add("project path", CheckFail, project.HostPath)
 			report.State = StateBroken
 			report.NextAction = fmt.Sprintf("fix project path for %s", project.Name)
 			return report
 		}
-		report.add("project path", CheckPass, project.Path)
+		report.add("project path", CheckPass, project.HostPath)
 	}
 	promptPath := filepath.Join(dir, "prompt.md")
 	if _, err := os.Stat(promptPath); err != nil {
@@ -107,8 +107,8 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	report.add("Dockerfile", dockerfileStatus, dockerfileDetail)
 
 	for _, project := range located.Definition.Projects {
-		if !hasVolumeMount(service.Volumes, project.Path, project.MountPath) {
-			required := project.Path + ":" + project.MountPath
+		if !hasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
+			required := project.HostPath + ":" + project.ContainerPath
 			return fail(&report, "project mount", fmt.Sprintf("missing volume %s for project %s", required, project.Name), "run agw workspace apply", StateBroken)
 		}
 		report.add("project mount", CheckPass, project.Name)

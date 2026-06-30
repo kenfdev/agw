@@ -35,10 +35,10 @@ var candidateFiles = []string{
 }
 
 func ScanProject(project workspace.Project) (ProjectSnapshot, error) {
-	if project.Path == "" {
+	if project.HostPath == "" {
 		return ProjectSnapshot{}, errors.New("project path is empty")
 	}
-	info, err := os.Stat(project.Path)
+	info, err := os.Stat(project.HostPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ProjectSnapshot{}, errors.New("project path must be an existing directory")
@@ -54,7 +54,7 @@ func ScanProject(project workspace.Project) (ProjectSnapshot, error) {
 		if !isAllowedCandidate(rel) {
 			continue
 		}
-		full := filepath.Join(project.Path, rel)
+		full := filepath.Join(project.HostPath, rel)
 		info, err := os.Stat(full)
 		if err != nil {
 			if os.IsNotExist(err) {

@@ -17,7 +17,7 @@ func TestScanProjectIncludesMajorConfigAndExcludesEnv(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, ".env.example"), "TOKEN=")
 	mustWrite(t, filepath.Join(dir, ".hiddenconfig"), "secret-config=1")
 
-	snap, err := ScanProject(workspace.Project{Name: "web", Path: dir, MountPath: "/workspace/web"})
+	snap, err := ScanProject(workspace.Project{Name: "web", HostPath: dir, ContainerPath: "/workspace/web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestScanProjectIncludesMajorConfigAndExcludesEnv(t *testing.T) {
 func TestScanProjectRejectsMissingProjectPath(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
 
-	_, err := ScanProject(workspace.Project{Name: "web", Path: missing, MountPath: "/workspace/web"})
+	_, err := ScanProject(workspace.Project{Name: "web", HostPath: missing, ContainerPath: "/workspace/web"})
 	if err == nil {
 		t.Fatal("expected missing project path to fail")
 	}

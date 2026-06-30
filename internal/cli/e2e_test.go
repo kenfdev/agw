@@ -80,10 +80,10 @@ func TestEndToEndWorkspaceWorkflow(t *testing.T) {
 		"--root", root,
 		"--id", "agw",
 		"--name", "AGW",
-		"--storage", storage,
+		"--workspace-dir", storage,
 		"--project", fmt.Sprintf("agw=%s:/workspace", projectPath),
 		"--service", "dev",
-		"--workspace-root", "/workspace",
+		"--workdir", "/workspace",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("workspace new failed: %v", err)

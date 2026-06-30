@@ -15,12 +15,29 @@ orchestrator.
 
 ```bash
 agw config init --root /path/to/personal/agw-root
-agw workspace new --root /path/to/personal/agw-root --id agw --name AGW --storage workspaces/github.com/kenfdev/agw --project agw=/path/to/agw:/workspace --service dev --workspace-root /workspace
+agw workspace new --root /path/to/personal/agw-root --id agw --name AGW --workspace-dir workspaces/agw --project agw=/path/to/agw:/workspace --service dev --workdir /workspace
 agw workspace prepare agw --output prompt.md
 agw workspace apply agw ./generated
 agw build agw
 agw up agw
 agw attach agw
+```
+
+Workspace definitions separate host-side AGW files from paths inside the
+container:
+
+```yaml
+id: agw
+name: AGW
+workspace:
+  dir: workspaces/agw
+container:
+  service: dev
+  workdir: /workspace
+projects:
+  - name: agw
+    hostPath: /path/to/agw
+    containerPath: /workspace
 ```
 
 By default, AGW stores user configuration in the OS user config directory

@@ -235,7 +235,7 @@ func newLifecycleListCommand() *cobra.Command {
 			sort.Slice(items, func(i, j int) bool { return items[i].Definition.ID < items[j].Definition.ID })
 			out := cmd.OutOrStdout()
 			for _, item := range items {
-				_, err := fmt.Fprintf(out, "%s\t%s\n", item.Definition.ID, item.Definition.Storage.Path)
+				_, err := fmt.Fprintf(out, "%s\t%s\n", item.Definition.ID, item.Definition.Workspace.Dir)
 				if err != nil {
 					return err
 				}
