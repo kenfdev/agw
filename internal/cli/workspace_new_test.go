@@ -19,10 +19,10 @@ func TestWorkspaceNewWritesDefinition(t *testing.T) {
 		"--root", root,
 		"--id", "agw",
 		"--name", "AGW",
-		"--storage", storage,
+		"--workspace-dir", storage,
 		"--project", "agw=/src/agw:/workspace",
 		"--service", "dev",
-		"--workspace-root", "/workspace",
+		"--workdir", "/workspace",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -42,14 +42,39 @@ func TestWorkspaceNewWritesDefinition(t *testing.T) {
 	if loaded.Name != "AGW" {
 		t.Fatalf("Name = %q", loaded.Name)
 	}
-	if loaded.Container.WorkspaceRoot != "/workspace" {
-		t.Fatalf("WorkspaceRoot = %q", loaded.Container.WorkspaceRoot)
+	if loaded.Container.Workdir != "/workspace" {
+		t.Fatalf("Workdir = %q", loaded.Container.Workdir)
 	}
-	if len(loaded.Projects) != 1 || loaded.Projects[0].Name != "agw" || loaded.Projects[0].Path != "/src/agw" || loaded.Projects[0].MountPath != "/workspace" {
+	if len(loaded.Projects) != 1 || loaded.Projects[0].Name != "agw" || loaded.Projects[0].HostPath != "/src/agw" || loaded.Projects[0].ContainerPath != "/workspace" {
 		t.Fatalf("Projects = %#v", loaded.Projects)
 	}
-	if loaded.Storage.Path != storage {
-		t.Fatalf("Storage.Path = %q", loaded.Storage.Path)
+	if loaded.Workspace.Dir != storage {
+		t.Fatalf("Workspace.Dir = %q", loaded.Workspace.Dir)
+	}
+}
+
+func TestWorkspaceNewAcceptsLegacyStorageFlags(t *testing.T) {
+	root := t.TempDir()
+	storage := "workspaces/legacy"
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"workspace", "new",
+		"--root", root,
+		"--id", "legacy",
+		"--name", "Legacy",
+		"--storage", storage,
+		"--project", "legacy=/src/legacy:/workspace",
+		"--service", "dev",
+		"--workspace-root", "/workspace",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := workspace.LoadDefinition(filepath.Join(root, storage, "agw.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Workspace.Dir != storage || loaded.Container.Workdir != "/workspace" {
+		t.Fatalf("definition = %#v", loaded)
 	}
 }
 
@@ -66,10 +91,10 @@ func TestWorkspaceNewRejectsAbsoluteStorage(t *testing.T) {
 		"--root", root,
 		"--id", "agw",
 		"--name", "AGW",
-		"--storage", absStorage,
+		"--workspace-dir", absStorage,
 		"--project", "agw=/src/agw:/workspace",
 		"--service", "dev",
-		"--workspace-root", "/workspace",
+		"--workdir", "/workspace",
 	})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error for absolute storage path")
@@ -92,10 +117,10 @@ func TestWorkspaceNewRejectsEscapingStorage(t *testing.T) {
 		"--root", root,
 		"--id", "agw",
 		"--name", "AGW",
-		"--storage", storage,
+		"--workspace-dir", storage,
 		"--project", "agw=/src/agw:/workspace",
 		"--service", "dev",
-		"--workspace-root", "/workspace",
+		"--workdir", "/workspace",
 	})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error for escaping storage path")
@@ -136,14 +161,14 @@ func TestWorkspaceNewFromProjectUsesConfigRootAndStandaloneDefaults(t *testing.T
 	if loaded.Container.Service != "dev" {
 		t.Fatalf("Service = %q, want dev", loaded.Container.Service)
 	}
-	if loaded.Container.WorkspaceRoot != "/workspace" {
-		t.Fatalf("WorkspaceRoot = %q, want /workspace", loaded.Container.WorkspaceRoot)
+	if loaded.Container.Workdir != "/workspace" {
+		t.Fatalf("Workdir = %q, want /workspace", loaded.Container.Workdir)
 	}
 	if len(loaded.Projects) != 1 {
 		t.Fatalf("Projects = %#v", loaded.Projects)
 	}
 	projectDef := loaded.Projects[0]
-	if projectDef.Name != "my-app" || projectDef.Path != project || projectDef.MountPath != "/workspace" {
+	if projectDef.Name != "my-app" || projectDef.HostPath != project || projectDef.ContainerPath != "/workspace" {
 		t.Fatalf("Project = %#v", projectDef)
 	}
 	if loaded.Networks != nil {
@@ -177,8 +202,8 @@ func TestWorkspaceNewFromProjectUsesPathMappingForStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Storage.Path != filepath.Join("workspaces", "github.com", "kenfdev", "agw") {
-		t.Fatalf("Storage.Path = %q", loaded.Storage.Path)
+	if loaded.Workspace.Dir != filepath.Join("workspaces", "github.com", "kenfdev", "agw") {
+		t.Fatalf("Workspace.Dir = %q", loaded.Workspace.Dir)
 	}
 }
 

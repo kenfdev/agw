@@ -11,11 +11,11 @@ import (
 func TestRenderPromptContainsConstraintsAndFiles(t *testing.T) {
 	out, err := Render(Input{
 		Definition: workspace.Definition{
-			ID: "agw", Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
-			Projects: []workspace.Project{{Name: "agw", Path: "/src/agw", MountPath: "/workspace"}},
+			ID: "agw", Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+			Projects: []workspace.Project{{Name: "agw", HostPath: "/src/agw", ContainerPath: "/workspace"}},
 		},
 		Projects: []scanner.ProjectSnapshot{{
-			Project: workspace.Project{Name: "agw", Path: "/src/agw", MountPath: "/workspace"},
+			Project: workspace.Project{Name: "agw", HostPath: "/src/agw", ContainerPath: "/workspace"},
 			Files:   []scanner.FileSnapshot{{Path: "go.mod", Content: "module example.com/agw"}},
 		}},
 		NetworkCandidates: []string{"acme_default"},
@@ -33,7 +33,7 @@ func TestRenderPromptContainsConstraintsAndFiles(t *testing.T) {
 func TestRenderPromptNoNetworkCandidates(t *testing.T) {
 	out, err := Render(Input{
 		Definition: workspace.Definition{
-			ID: "agw", Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+			ID: "agw", Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
 		},
 		Projects:          nil,
 		NetworkCandidates: nil,
@@ -53,7 +53,7 @@ func TestRenderPromptTreatsExternalNetworksAsSelectedOnly(t *testing.T) {
 	out, err := Render(Input{
 		Definition: workspace.Definition{
 			ID:        "agw",
-			Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+			Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
 			Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "api_default"}}},
 		},
 		NetworkCandidates: []string{"api_default", "other_default"},

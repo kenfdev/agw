@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kenfdev/agw/internal/config"
@@ -46,24 +48,71 @@ func TestSuggestStoragePathRejectsEscapingRelativePath(t *testing.T) {
 func TestLoadSaveDefinition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agw.yaml")
 	want := Definition{
-		ID:      "agw",
-		Name:    "AGW",
-		Storage: Storage{Path: "workspaces/github.com/kenfdev/agw"},
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: Workspace{Dir: "workspaces/github.com/kenfdev/agw"},
 		Container: Container{
-			Service:       "dev",
-			WorkspaceRoot: "/workspace",
+			Service: "dev",
+			Workdir: "/workspace",
 		},
-		Projects: []Project{{Name: "agw", Path: "/src/agw", MountPath: "/workspace"}},
+		Projects: []Project{{Name: "agw", HostPath: "/src/agw", ContainerPath: "/workspace"}},
 	}
 	if err := SaveDefinition(path, want); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotYAML := string(b)
+	for _, want := range []string{"workspace:\n    dir:", "workdir:", "hostPath:", "containerPath:"} {
+		if !strings.Contains(gotYAML, want) {
+			t.Fatalf("saved YAML missing %q:\n%s", want, gotYAML)
+		}
+	}
+	for _, legacy := range []string{"storage:", "workspaceRoot:", "mountPath:"} {
+		if strings.Contains(gotYAML, legacy) {
+			t.Fatalf("saved YAML contains legacy field %q:\n%s", legacy, gotYAML)
+		}
+	}
+	got, err := LoadDefinition(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "agw" || got.Workspace.Dir != "workspaces/github.com/kenfdev/agw" || got.Container.Workdir != "/workspace" || got.Projects[0].ContainerPath != "/workspace" {
+		t.Fatalf("definition = %#v", got)
+	}
+}
+
+func TestLoadDefinitionAcceptsLegacyFieldNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agw.yaml")
+	legacy := []byte(`id: agw
+name: AGW
+storage:
+    path: workspaces/github.com/kenfdev/agw
+container:
+    service: dev
+    workspaceRoot: /workspace
+projects:
+    - name: agw
+      path: /src/agw
+      mountPath: /workspace
+`)
+	if err := os.WriteFile(path, legacy, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadDefinition(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "agw" || got.Projects[0].MountPath != "/workspace" {
-		t.Fatalf("definition = %#v", got)
+	if got.Workspace.Dir != "workspaces/github.com/kenfdev/agw" {
+		t.Fatalf("Workspace.Dir = %q", got.Workspace.Dir)
+	}
+	if got.Container.Workdir != "/workspace" {
+		t.Fatalf("Container.Workdir = %q", got.Container.Workdir)
+	}
+	if len(got.Projects) != 1 || got.Projects[0].HostPath != "/src/agw" || got.Projects[0].ContainerPath != "/workspace" {
+		t.Fatalf("Projects = %#v", got.Projects)
 	}
 }
 
@@ -73,7 +122,7 @@ func TestRegistryFindAndList(t *testing.T) {
 	def := Definition{
 		ID: "target",
 		Projects: []Project{
-			{Name: "app", Path: "/src", MountPath: "/workspace"},
+			{Name: "app", HostPath: "/src", ContainerPath: "/workspace"},
 		},
 	}
 	if err := SaveDefinition(defPath, def); err != nil {

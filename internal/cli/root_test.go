@@ -20,13 +20,13 @@ func TestTUIActionsPrepareWritesPromptToWorkspacePromptFile(t *testing.T) {
 	item := workspace.LocatedDefinition{
 		Path: filepath.Join(workspaceDir, "agw.yaml"),
 		Definition: workspace.Definition{
-			ID:      "agw",
-			Storage: workspace.Storage{Path: workspaceDir},
+			ID:        "agw",
+			Workspace: workspace.Workspace{Dir: workspaceDir},
 			Container: workspace.Container{
-				Service:       "dev",
-				WorkspaceRoot: "/workspace",
+				Service: "dev",
+				Workdir: "/workspace",
 			},
-			Projects: []workspace.Project{{Name: "agw", Path: projectDir, MountPath: "/workspace"}},
+			Projects: []workspace.Project{{Name: "agw", HostPath: projectDir, ContainerPath: "/workspace"}},
 		},
 	}
 

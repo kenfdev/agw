@@ -10,25 +10,33 @@ import (
 type Definition struct {
 	ID        string    `yaml:"id"`
 	Name      string    `yaml:"name"`
-	Storage   Storage   `yaml:"storage"`
+	Workspace Workspace `yaml:"workspace"`
+	Storage   Storage   `yaml:"storage,omitempty"`
 	Container Container `yaml:"container"`
 	Projects  []Project `yaml:"projects"`
 	Networks  *Networks `yaml:"networks,omitempty"`
 }
 
+type Workspace struct {
+	Dir string `yaml:"dir"`
+}
+
 type Storage struct {
-	Path string `yaml:"path"`
+	Path string `yaml:"path,omitempty"`
 }
 
 type Container struct {
 	Service       string `yaml:"service"`
-	WorkspaceRoot string `yaml:"workspaceRoot"`
+	Workdir       string `yaml:"workdir"`
+	WorkspaceRoot string `yaml:"workspaceRoot,omitempty"`
 }
 
 type Project struct {
-	Name      string `yaml:"name"`
-	Path      string `yaml:"path"`
-	MountPath string `yaml:"mountPath"`
+	Name          string `yaml:"name"`
+	HostPath      string `yaml:"hostPath"`
+	ContainerPath string `yaml:"containerPath"`
+	Path          string `yaml:"path,omitempty"`
+	MountPath     string `yaml:"mountPath,omitempty"`
 }
 
 type Networks struct {
@@ -49,16 +57,45 @@ func LoadDefinition(path string) (Definition, error) {
 	if err := yaml.Unmarshal(b, &def); err != nil {
 		return Definition{}, err
 	}
-	return def, nil
+	return normalizeDefinition(def), nil
 }
 
 func SaveDefinition(path string, def Definition) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	def = normalizeDefinition(def)
+	clearLegacyFields(&def)
 	b, err := yaml.Marshal(def)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, b, 0o644)
+}
+
+func normalizeDefinition(def Definition) Definition {
+	if def.Workspace.Dir == "" {
+		def.Workspace.Dir = def.Storage.Path
+	}
+	if def.Container.Workdir == "" {
+		def.Container.Workdir = def.Container.WorkspaceRoot
+	}
+	for i := range def.Projects {
+		if def.Projects[i].HostPath == "" {
+			def.Projects[i].HostPath = def.Projects[i].Path
+		}
+		if def.Projects[i].ContainerPath == "" {
+			def.Projects[i].ContainerPath = def.Projects[i].MountPath
+		}
+	}
+	return def
+}
+
+func clearLegacyFields(def *Definition) {
+	def.Storage = Storage{}
+	def.Container.WorkspaceRoot = ""
+	for i := range def.Projects {
+		def.Projects[i].Path = ""
+		def.Projects[i].MountPath = ""
+	}
 }

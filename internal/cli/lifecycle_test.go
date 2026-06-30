@@ -211,8 +211,8 @@ func TestLifecycleStatusShowsServiceAndNetworks(t *testing.T) {
 	root := t.TempDir()
 	def := workspace.Definition{
 		ID:        "agw",
-		Storage:   workspace.Storage{Path: filepath.Join(root, "storage", "agw")},
-		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "storage", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
 		Networks: &workspace.Networks{
 			Attach: []workspace.NetworkAttachment{
 				{Name: "acme_default"},
@@ -314,11 +314,11 @@ func mustWriteLifecycleWorkspace(t *testing.T, root, id, service string) (string
 	defPath, wsPath := createLifecycleDir(t, root, id)
 	storage := filepath.Join(root, "storage", id)
 	def := workspace.Definition{
-		ID:      id,
-		Storage: workspace.Storage{Path: storage},
+		ID:        id,
+		Workspace: workspace.Workspace{Dir: storage},
 		Container: workspace.Container{
-			Service:       service,
-			WorkspaceRoot: "/workspace",
+			Service: service,
+			Workdir: "/workspace",
 		},
 	}
 	mustWriteLifecycleDefinitionFile(t, defPath, def)
@@ -334,11 +334,11 @@ func mustWriteLifecycleWorkspaceWithNetworks(t *testing.T, root, id, service str
 	defPath, wsPath := createLifecycleDir(t, root, id)
 	storage := filepath.Join(root, "storage", id)
 	def := workspace.Definition{
-		ID:      id,
-		Storage: workspace.Storage{Path: storage},
+		ID:        id,
+		Workspace: workspace.Workspace{Dir: storage},
 		Container: workspace.Container{
-			Service:       service,
-			WorkspaceRoot: "/workspace",
+			Service: service,
+			Workdir: "/workspace",
 		},
 		Networks: &workspace.Networks{Attach: networks},
 	}
@@ -382,11 +382,11 @@ func createLifecycleDefinition(t *testing.T, root, id, service, storage string) 
 	t.Helper()
 	defPath, wsPath := createLifecycleDir(t, root, id)
 	def := workspace.Definition{
-		ID:      id,
-		Storage: workspace.Storage{Path: filepath.Join(storage)},
+		ID:        id,
+		Workspace: workspace.Workspace{Dir: filepath.Join(storage)},
 		Container: workspace.Container{
-			Service:       service,
-			WorkspaceRoot: "/workspace",
+			Service: service,
+			Workdir: "/workspace",
 		},
 	}
 	if err := workspace.SaveDefinition(defPath, def); err != nil {

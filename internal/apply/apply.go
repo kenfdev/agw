@@ -134,8 +134,8 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 	}
 
 	for _, project := range def.Projects {
-		if !hasVolumeMount(service.Volumes, project.Path, project.MountPath) {
-			required := project.Path + ":" + project.MountPath
+		if !hasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
+			required := project.HostPath + ":" + project.ContainerPath
 			return fmt.Errorf("missing volume %s for project %s", required, project.Name)
 		}
 	}

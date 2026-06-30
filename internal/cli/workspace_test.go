@@ -19,13 +19,13 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 	}
 
 	def := workspace.Definition{
-		ID:      "agw",
-		Storage: workspace.Storage{Path: filepath.Join(root, "storage", "agw")},
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "storage", "agw")},
 		Container: workspace.Container{
-			Service:       "dev",
-			WorkspaceRoot: "/workspace",
+			Service: "dev",
+			Workdir: "/workspace",
 		},
-		Projects: []workspace.Project{{Name: "agw", Path: wsDir, MountPath: "/workspace"}},
+		Projects: []workspace.Project{{Name: "agw", HostPath: wsDir, ContainerPath: "/workspace"}},
 		Networks: &workspace.Networks{
 			Attach: []workspace.NetworkAttachment{{Name: "acme_default"}},
 		},
@@ -169,8 +169,8 @@ func TestWorkspaceNetworkAddPersistsExternalNetworkSelection(t *testing.T) {
 	def := workspace.Definition{
 		ID:        "agw",
 		Name:      "AGW",
-		Storage:   workspace.Storage{Path: filepath.Join("workspaces", "agw")},
-		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+		Workspace: workspace.Workspace{Dir: filepath.Join("workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
 	}
 	defPath := filepath.Join(wsDir, "agw.yaml")
 	if err := workspace.SaveDefinition(defPath, def); err != nil {
@@ -207,7 +207,7 @@ func TestWorkspaceNetworkAddDoesNotDuplicateExistingSelection(t *testing.T) {
 	}
 	def := workspace.Definition{
 		ID:        "agw",
-		Container: workspace.Container{Service: "dev", WorkspaceRoot: "/workspace"},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
 		Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "api_default"}}},
 	}
 	defPath := filepath.Join(wsDir, "agw.yaml")

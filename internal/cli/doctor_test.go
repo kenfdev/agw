@@ -75,7 +75,7 @@ func createDoctorFixture(t *testing.T, ids ...string) (string, string) {
 		if err := os.MkdirAll(project, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		runCommand(t, []string{"workspace", "new", "--root", root, "--id", id, "--name", id, "--storage", "workspaces/" + id, "--project", id + "=" + project + ":/workspace", "--service", "dev", "--workspace-root", "/workspace"})
+		runCommand(t, []string{"workspace", "new", "--root", root, "--id", id, "--name", id, "--workspace-dir", "workspaces/" + id, "--project", id + "=" + project + ":/workspace", "--service", "dev", "--workdir", "/workspace"})
 	}
 	return root, configPath
 }
