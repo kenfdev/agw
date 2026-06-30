@@ -310,6 +310,10 @@ func newWorkspacePrepareCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			baseGuidance, baseEnvironmentMeta, err := loadBaseEnvironmentGuidance(path, cfg, located)
+			if err != nil {
+				return err
+			}
 
 			projectSnapshots := make([]scanner.ProjectSnapshot, 0, len(located.Definition.Projects))
 			for _, project := range located.Definition.Projects {
@@ -330,6 +334,7 @@ func newWorkspacePrepareCommand() *cobra.Command {
 				Definition:        located.Definition,
 				Projects:          projectSnapshots,
 				NetworkCandidates: networkCandidatesForPrepare(located.Definition, availableNetworks),
+				BaseEnvironment:   baseGuidance,
 			})
 			if err != nil {
 				return err
@@ -341,7 +346,7 @@ func newWorkspacePrepareCommand() *cobra.Command {
 						return err
 					}
 				}
-				return writeJSON(cmd.OutOrStdout(), newPrepareAgentPacket(located, prompt, outputPath, networkCandidatesForPrepare(located.Definition, availableNetworks)))
+				return writeJSON(cmd.OutOrStdout(), newPrepareAgentPacket(located, prompt, outputPath, networkCandidatesForPrepare(located.Definition, availableNetworks), baseEnvironmentMeta))
 			}
 
 			if outputPath != "" {
@@ -359,21 +364,28 @@ func newWorkspacePrepareCommand() *cobra.Command {
 }
 
 type prepareAgentPacket struct {
-	WorkspaceID            string   `json:"workspaceId"`
-	WorkspaceDir           string   `json:"workspaceDir"`
-	PromptPath             string   `json:"promptPath,omitempty"`
-	Service                string   `json:"service"`
-	Workdir                string   `json:"workdir"`
-	Mode                   string   `json:"mode"`
-	Prompt                 string   `json:"prompt"`
-	ExpectedGeneratedFiles []string `json:"expectedGeneratedFiles"`
-	SelectedNetworks       []string `json:"selectedNetworks"`
-	NetworkCandidates      []string `json:"networkCandidates"`
-	SafetyRules            []string `json:"safetyRules"`
-	NextCommands           []string `json:"nextCommands"`
+	WorkspaceID            string                     `json:"workspaceId"`
+	WorkspaceDir           string                     `json:"workspaceDir"`
+	PromptPath             string                     `json:"promptPath,omitempty"`
+	Service                string                     `json:"service"`
+	Workdir                string                     `json:"workdir"`
+	Mode                   string                     `json:"mode"`
+	Prompt                 string                     `json:"prompt"`
+	ExpectedGeneratedFiles []string                   `json:"expectedGeneratedFiles"`
+	SelectedNetworks       []string                   `json:"selectedNetworks"`
+	NetworkCandidates      []string                   `json:"networkCandidates"`
+	BaseEnvironment        baseEnvironmentAgentPacket `json:"baseEnvironment"`
+	SafetyRules            []string                   `json:"safetyRules"`
+	NextCommands           []string                   `json:"nextCommands"`
 }
 
-func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPath string, candidates []string) prepareAgentPacket {
+type baseEnvironmentAgentPacket struct {
+	GlobalGuidancePath    string `json:"globalGuidancePath,omitempty"`
+	WorkspaceGuidancePath string `json:"workspaceGuidancePath,omitempty"`
+	IncludeGlobal         bool   `json:"includeGlobal"`
+}
+
+func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPath string, candidates []string, baseEnvironment baseEnvironmentAgentPacket) prepareAgentPacket {
 	def := located.Definition
 	selected := networkCandidates(def)
 	mode := "standalone-sidecar"
@@ -391,6 +403,7 @@ func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPa
 		ExpectedGeneratedFiles: []string{"Dockerfile", "compose.yaml"},
 		SelectedNetworks:       selected,
 		NetworkCandidates:      candidates,
+		BaseEnvironment:        baseEnvironment,
 		SafetyRules: []string{
 			"Do not edit target project files.",
 			"Generate files for the AGW workspace directory only.",
@@ -403,6 +416,41 @@ func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPa
 			fmt.Sprintf("agw start %s", def.ID),
 		},
 	}
+}
+
+func loadBaseEnvironmentGuidance(configPath string, cfg config.Config, located workspace.LocatedDefinition) (prepare.BaseEnvironmentGuidance, baseEnvironmentAgentPacket, error) {
+	includeGlobal := located.Definition.IncludeGlobalBaseEnvironment()
+	meta := baseEnvironmentAgentPacket{IncludeGlobal: includeGlobal}
+	var guidance prepare.BaseEnvironmentGuidance
+
+	if includeGlobal && cfg.BaseEnvironment.GuidancePath != "" {
+		path := resolveRelativeToFile(configPath, cfg.BaseEnvironment.GuidancePath)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return guidance, meta, fmt.Errorf("read global base environment guidance %s: %w", path, err)
+		}
+		meta.GlobalGuidancePath = path
+		guidance.Global = string(content)
+	}
+
+	if located.Definition.BaseEnvironment.GuidancePath != "" {
+		path := resolveRelativeToFile(located.Path, located.Definition.BaseEnvironment.GuidancePath)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return guidance, meta, fmt.Errorf("read workspace base environment guidance %s: %w", path, err)
+		}
+		meta.WorkspaceGuidancePath = path
+		guidance.Workspace = string(content)
+	}
+
+	return guidance, meta, nil
+}
+
+func resolveRelativeToFile(baseFile, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(baseFile), path))
 }
 
 func newWorkspaceApplyCommand() *cobra.Command {

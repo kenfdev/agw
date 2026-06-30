@@ -101,20 +101,35 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/agw"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	globalGuidance := filepath.Join(root, "base-environment.md")
+	if err := os.WriteFile(globalGuidance, []byte("Prefer devcontainer-features."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, "environment.md"), []byte("Install PostgreSQL client tools."), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	def := workspace.Definition{
 		ID:        "agw",
 		Name:      "AGW",
 		Workspace: workspace.Workspace{Dir: filepath.Join("workspaces", "agw")},
 		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
-		Projects:  []workspace.Project{{Name: "agw", HostPath: projectDir, ContainerPath: "/workspace"}},
-		Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "manual"}}},
+		BaseEnvironment: workspace.BaseEnvironment{
+			GuidancePath: "environment.md",
+		},
+		Projects: []workspace.Project{{Name: "agw", HostPath: projectDir, ContainerPath: "/workspace"}},
+		Networks: &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "manual"}}},
 	}
 	if err := workspace.SaveDefinition(filepath.Join(wsDir, "agw.yaml"), def); err != nil {
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{
+		WorkspaceRoots: []string{root},
+		BaseEnvironment: config.BaseEnvironment{
+			GuidancePath: "base-environment.md",
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,6 +155,11 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 		NetworkCandidates      []string `json:"networkCandidates"`
 		SafetyRules            []string `json:"safetyRules"`
 		NextCommands           []string `json:"nextCommands"`
+		BaseEnvironment        struct {
+			GlobalGuidancePath    string `json:"globalGuidancePath,omitempty"`
+			WorkspaceGuidancePath string `json:"workspaceGuidancePath,omitempty"`
+			IncludeGlobal         bool   `json:"includeGlobal"`
+		} `json:"baseEnvironment"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("agent JSON is invalid: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errOut.String())
@@ -159,6 +179,18 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 	if !strings.Contains(got.Prompt, "AGW Workspace Preparation: agw") {
 		t.Fatalf("prompt missing title:\n%s", got.Prompt)
 	}
+	if !strings.Contains(got.Prompt, "Prefer devcontainer-features.") || !strings.Contains(got.Prompt, "Install PostgreSQL client tools.") {
+		t.Fatalf("prompt missing base environment guidance:\n%s", got.Prompt)
+	}
+	if got.BaseEnvironment.GlobalGuidancePath != globalGuidance {
+		t.Fatalf("globalGuidancePath = %q, want %q", got.BaseEnvironment.GlobalGuidancePath, globalGuidance)
+	}
+	if got.BaseEnvironment.WorkspaceGuidancePath != filepath.Join(wsDir, "environment.md") {
+		t.Fatalf("workspaceGuidancePath = %q", got.BaseEnvironment.WorkspaceGuidancePath)
+	}
+	if !got.BaseEnvironment.IncludeGlobal {
+		t.Fatal("includeGlobal = false, want true")
+	}
 	if !containsString(got.ExpectedGeneratedFiles, "Dockerfile") || !containsString(got.ExpectedGeneratedFiles, "compose.yaml") {
 		t.Fatalf("expectedGeneratedFiles = %#v", got.ExpectedGeneratedFiles)
 	}
@@ -170,6 +202,101 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 	}
 	if !containsString(got.NextCommands, "agw workspace apply agw <generated-dir>") || !containsString(got.NextCommands, "agw doctor agw --json") {
 		t.Fatalf("nextCommands = %#v", got.NextCommands)
+	}
+}
+
+func TestWorkspacePrepareFailsWhenConfiguredGuidanceMissing(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "projects", "agw")
+	wsDir := filepath.Join(root, "workspaces", "agw")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	def := workspace.Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: workspace.Workspace{Dir: filepath.Join("workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects:  []workspace.Project{{Name: "agw", HostPath: projectDir, ContainerPath: "/workspace"}},
+	}
+	if err := workspace.SaveDefinition(filepath.Join(wsDir, "agw.yaml"), def); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{
+		WorkspaceRoots: []string{root},
+		BaseEnvironment: config.BaseEnvironment{
+			GuidancePath: "missing.md",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewWorkspaceCommand()
+	cmd.SetArgs([]string{"prepare", "agw", "--config", cfgPath})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected missing guidance error")
+	}
+	if !strings.Contains(err.Error(), "global base environment guidance") || !strings.Contains(err.Error(), "missing.md") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestWorkspacePrepareIncludeGlobalFalseSkipsGlobalGuidance(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "projects", "agw")
+	wsDir := filepath.Join(root, "workspaces", "agw")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	includeGlobal := false
+	if err := os.WriteFile(filepath.Join(wsDir, "environment.md"), []byte("Only workspace guidance."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	def := workspace.Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: workspace.Workspace{Dir: filepath.Join("workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		BaseEnvironment: workspace.BaseEnvironment{
+			IncludeGlobal: &includeGlobal,
+			GuidancePath:  "environment.md",
+		},
+		Projects: []workspace.Project{{Name: "agw", HostPath: projectDir, ContainerPath: "/workspace"}},
+	}
+	if err := workspace.SaveDefinition(filepath.Join(wsDir, "agw.yaml"), def); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{
+		WorkspaceRoots: []string{root},
+		BaseEnvironment: config.BaseEnvironment{
+			GuidancePath: "missing-global.md",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cmd := NewWorkspaceCommand()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"prepare", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "missing-global") {
+		t.Fatalf("global guidance leaked into prompt:\n%s", got)
+	}
+	if !strings.Contains(got, "Only workspace guidance.") {
+		t.Fatalf("workspace guidance missing:\n%s", got)
 	}
 }
 
