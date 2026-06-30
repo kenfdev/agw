@@ -1,0 +1,4 @@
+interface:
+  display_name: "AGW"
+  short_description: "Drive AGW workspaces with the local CLI"
+  default_prompt: "Use $agw to inspect and operate this AGW workspace."
