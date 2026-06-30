@@ -8,13 +8,14 @@ import (
 )
 
 type Definition struct {
-	ID        string    `yaml:"id"`
-	Name      string    `yaml:"name"`
-	Workspace Workspace `yaml:"workspace"`
-	Storage   Storage   `yaml:"storage,omitempty"`
-	Container Container `yaml:"container"`
-	Projects  []Project `yaml:"projects"`
-	Networks  *Networks `yaml:"networks,omitempty"`
+	ID              string          `yaml:"id"`
+	Name            string          `yaml:"name"`
+	Workspace       Workspace       `yaml:"workspace"`
+	Storage         Storage         `yaml:"storage,omitempty"`
+	Container       Container       `yaml:"container"`
+	BaseEnvironment BaseEnvironment `yaml:"baseEnvironment,omitempty"`
+	Projects        []Project       `yaml:"projects"`
+	Networks        *Networks       `yaml:"networks,omitempty"`
 }
 
 type Workspace struct {
@@ -29,6 +30,15 @@ type Container struct {
 	Service       string `yaml:"service"`
 	Workdir       string `yaml:"workdir"`
 	WorkspaceRoot string `yaml:"workspaceRoot,omitempty"`
+}
+
+type BaseEnvironment struct {
+	IncludeGlobal *bool  `yaml:"includeGlobal,omitempty"`
+	GuidancePath  string `yaml:"guidancePath,omitempty"`
+}
+
+func (d Definition) IncludeGlobalBaseEnvironment() bool {
+	return d.BaseEnvironment.IncludeGlobal == nil || *d.BaseEnvironment.IncludeGlobal
 }
 
 type Project struct {

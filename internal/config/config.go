@@ -8,8 +8,13 @@ import (
 )
 
 type Config struct {
-	WorkspaceRoots []string      `yaml:"workspaceRoots"`
-	PathMappings   []PathMapping `yaml:"pathMappings,omitempty"`
+	WorkspaceRoots  []string        `yaml:"workspaceRoots"`
+	PathMappings    []PathMapping   `yaml:"pathMappings,omitempty"`
+	BaseEnvironment BaseEnvironment `yaml:"baseEnvironment,omitempty"`
+}
+
+type BaseEnvironment struct {
+	GuidancePath string `yaml:"guidancePath,omitempty"`
 }
 
 type PathMapping struct {

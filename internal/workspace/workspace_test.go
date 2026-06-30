@@ -116,6 +116,44 @@ projects:
 	}
 }
 
+func TestLoadSaveDefinitionPreservesBaseEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agw.yaml")
+	includeGlobal := false
+	want := Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: Workspace{Dir: "workspaces/agw"},
+		Container: Container{Service: "dev", Workdir: "/workspace"},
+		BaseEnvironment: BaseEnvironment{
+			IncludeGlobal: &includeGlobal,
+			GuidancePath:  "environment.md",
+		},
+	}
+	if err := SaveDefinition(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadDefinition(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaseEnvironment.IncludeGlobal == nil || *got.BaseEnvironment.IncludeGlobal {
+		t.Fatalf("IncludeGlobal = %#v, want false", got.BaseEnvironment.IncludeGlobal)
+	}
+	if got.BaseEnvironment.GuidancePath != "environment.md" {
+		t.Fatalf("GuidancePath = %q", got.BaseEnvironment.GuidancePath)
+	}
+	if got.IncludeGlobalBaseEnvironment() {
+		t.Fatal("IncludeGlobalBaseEnvironment() = true, want false")
+	}
+}
+
+func TestDefinitionDefaultsIncludeGlobalBaseEnvironment(t *testing.T) {
+	def := Definition{}
+	if !def.IncludeGlobalBaseEnvironment() {
+		t.Fatal("IncludeGlobalBaseEnvironment() = false, want true")
+	}
+}
+
 func TestRegistryFindAndList(t *testing.T) {
 	root := t.TempDir()
 	defPath := filepath.Join(root, "a", "b", "agw.yaml")

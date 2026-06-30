@@ -26,6 +26,9 @@ func TestSaveAndLoadConfig(t *testing.T) {
 			SourceRoot:      "/Users/me/ghq",
 			WorkspacePrefix: "workspaces",
 		}},
+		BaseEnvironment: BaseEnvironment{
+			GuidancePath: "base-environment.md",
+		},
 	}
 	if err := Save(path, want); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -39,5 +42,8 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	}
 	if got.PathMappings[0].WorkspacePrefix != "workspaces" {
 		t.Fatalf("PathMappings = %#v", got.PathMappings)
+	}
+	if got.BaseEnvironment.GuidancePath != "base-environment.md" {
+		t.Fatalf("BaseEnvironment.GuidancePath = %q", got.BaseEnvironment.GuidancePath)
 	}
 }
