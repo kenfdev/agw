@@ -21,6 +21,74 @@ By default, the installer uses `/usr/local/bin` when writable and falls back to
 curl -fsSL https://raw.githubusercontent.com/kenfdev/agw/main/install.sh | AGW_INSTALL_DIR="$HOME/bin" sh
 ```
 
+## Use AGW with an LLM
+
+AGW is designed to make workspace setup and diagnosis easy to delegate to an
+LLM. You do not need to memorize every lifecycle command. In normal use, you
+tell the LLM what you want, explicitly ask it to use the `agw` skill, and let
+that skill drive the current `agw` CLI.
+
+### One-time local setup
+
+First choose where AGW should keep your personal workspace definitions and
+generated files:
+
+```bash
+agw config init --root /path/to/personal/agw-root
+```
+
+This root belongs to you. It is separate from the target repositories you work
+on.
+
+### Initialize a workspace
+
+Minimal prompt:
+
+```text
+Set up an AGW workspace for this repository using the agw skill.
+```
+
+More explicit prompt:
+
+```text
+Set up an AGW workspace for this repository using the agw skill. Use the current repository as the project, prefer standalone sidecar mode, and do not modify the target repository.
+```
+
+The LLM should use the `agw` skill to create a workspace definition, prepare the
+workspace prompt, apply generated workspace files, and start from the current
+CLI behavior instead of guessing project-specific Docker details.
+
+### Diagnose an existing workspace
+
+Minimal prompt:
+
+```text
+Diagnose my AGW workspace using the agw skill and tell me the next required action.
+```
+
+More explicit prompt:
+
+```text
+Diagnose my AGW workspace using the agw skill. Use agw doctor --json as the source of truth, follow the reported next action, and do not start, stop, or modify project services unless I ask.
+```
+
+The important part is that `doctor --json` is the state machine. The LLM should
+inspect that output before deciding whether the workspace needs preparation,
+generated files need to be applied, or the sidecar can be started.
+
+### What the skill uses behind the scenes
+
+These are the main CLI commands the `agw` skill may use while handling your
+request:
+
+| Situation | Representative CLI |
+| --- | --- |
+| Create a workspace definition | `agw workspace new ...` |
+| Render an agent-readable preparation packet | `agw workspace prepare <workspace> --agent-json` |
+| Apply generated workspace files | `agw workspace apply <workspace> <generated-dir>` |
+| Diagnose current state | `agw doctor <workspace> --json` |
+| Start the workspace when ready | `agw start <workspace>` |
+
 ## Release
 
 Releases are published from semantic version tags:
@@ -50,7 +118,10 @@ Docker remains an external runtime owned by the user. AGW should stay a thin
 workspace preparation and command-assistance layer, not a container
 orchestrator.
 
-## MVP Flow
+## Manual CLI flow
+
+You can also run the lifecycle yourself without an LLM. This is useful for
+understanding the underlying flow or for debugging a workspace by hand.
 
 ```bash
 agw config init --root /path/to/personal/agw-root
