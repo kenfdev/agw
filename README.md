@@ -1,5 +1,44 @@
 # AGW
 
+## Install
+
+Install the latest released AGW binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kenfdev/agw/main/install.sh | sh
+```
+
+Install a pinned version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kenfdev/agw/main/install.sh | AGW_VERSION=v0.1.0 sh
+```
+
+By default, the installer uses `/usr/local/bin` when writable and falls back to
+`$HOME/.local/bin`. Set `AGW_INSTALL_DIR` to choose a directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kenfdev/agw/main/install.sh | AGW_INSTALL_DIR="$HOME/bin" sh
+```
+
+## Release
+
+Releases are published from semantic version tags:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag workflow runs tests, builds macOS and Linux binaries with GoReleaser,
+uploads checksums, and publishes a GitHub Release.
+
+Validate the release configuration locally before tagging:
+
+```bash
+go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
+```
+
 ## Docker Boundary
 
 AGW does not embed Docker, the Docker Engine, or a Docker SDK. It prepares

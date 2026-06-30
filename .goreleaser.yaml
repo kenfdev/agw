@@ -1,0 +1,47 @@
+version: 2
+
+project_name: agw
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agw
+    main: ./cmd/agw
+    binary: agw
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Tag }}
+
+archives:
+  - id: agw
+    ids:
+      - agw
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- if eq .Os "darwin" }}Darwin{{ else if eq .Os "linux" }}Linux{{ else }}{{ .Os }}{{ end }}_
+      {{- if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
+    formats:
+      - tar.gz
+    files:
+      - none*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: git
+  sort: asc
+
+release:
+  github:
+    owner: kenfdev
+    name: agw
