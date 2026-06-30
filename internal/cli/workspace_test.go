@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +85,91 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 		if !strings.Contains(out, allowed) {
 			t.Fatalf("allowed hidden file missing in output: %q", allowed)
 		}
+	}
+}
+
+func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
+	root := t.TempDir()
+	projectDir := filepath.Join(root, "projects", "agw")
+	wsDir := filepath.Join(root, "workspaces", "agw")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/agw"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	def := workspace.Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: workspace.Workspace{Dir: filepath.Join("workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects:  []workspace.Project{{Name: "agw", HostPath: projectDir, ContainerPath: "/workspace"}},
+		Networks:  &workspace.Networks{Attach: []workspace.NetworkAttachment{{Name: "manual"}}},
+	}
+	if err := workspace.SaveDefinition(filepath.Join(wsDir, "agw.yaml"), def); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd := NewWorkspaceCommand()
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"prepare", "agw", "--config", cfgPath, "--agent-json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		WorkspaceID            string   `json:"workspaceId"`
+		WorkspaceDir           string   `json:"workspaceDir"`
+		Service                string   `json:"service"`
+		Workdir                string   `json:"workdir"`
+		Mode                   string   `json:"mode"`
+		Prompt                 string   `json:"prompt"`
+		ExpectedGeneratedFiles []string `json:"expectedGeneratedFiles"`
+		SelectedNetworks       []string `json:"selectedNetworks"`
+		NetworkCandidates      []string `json:"networkCandidates"`
+		SafetyRules            []string `json:"safetyRules"`
+		NextCommands           []string `json:"nextCommands"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("agent JSON is invalid: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errOut.String())
+	}
+	if got.WorkspaceID != "agw" {
+		t.Fatalf("workspaceId = %q, want agw", got.WorkspaceID)
+	}
+	if got.WorkspaceDir != wsDir {
+		t.Fatalf("workspaceDir = %q, want %q", got.WorkspaceDir, wsDir)
+	}
+	if got.Service != "dev" || got.Workdir != "/workspace" {
+		t.Fatalf("service/workdir = %q/%q", got.Service, got.Workdir)
+	}
+	if got.Mode != "attached-sidecar" {
+		t.Fatalf("mode = %q, want attached-sidecar", got.Mode)
+	}
+	if !strings.Contains(got.Prompt, "AGW Workspace Preparation: agw") {
+		t.Fatalf("prompt missing title:\n%s", got.Prompt)
+	}
+	if !containsString(got.ExpectedGeneratedFiles, "Dockerfile") || !containsString(got.ExpectedGeneratedFiles, "compose.yaml") {
+		t.Fatalf("expectedGeneratedFiles = %#v", got.ExpectedGeneratedFiles)
+	}
+	if !containsString(got.SelectedNetworks, "manual") || !containsString(got.NetworkCandidates, "manual") {
+		t.Fatalf("selected/candidate networks = %#v / %#v", got.SelectedNetworks, got.NetworkCandidates)
+	}
+	if !containsString(got.SafetyRules, "Do not edit target project files.") {
+		t.Fatalf("safetyRules = %#v", got.SafetyRules)
+	}
+	if !containsString(got.NextCommands, "agw workspace apply agw <generated-dir>") || !containsString(got.NextCommands, "agw doctor agw --json") {
+		t.Fatalf("nextCommands = %#v", got.NextCommands)
 	}
 }
 
@@ -242,6 +329,15 @@ func mustWriteCLI(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 type cliFakeRunner struct {

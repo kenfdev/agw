@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -14,6 +15,7 @@ import (
 func newDoctorCommand() *cobra.Command {
 	var configPath string
 	var all bool
+	var jsonOut bool
 
 	cmd := &cobra.Command{
 		Use:   "doctor [workspace]",
@@ -37,6 +39,13 @@ func newDoctorCommand() *cobra.Command {
 					return err
 				}
 				sort.Slice(items, func(i, j int) bool { return items[i].Definition.ID < items[j].Definition.ID })
+				if jsonOut {
+					reports := make([]doctor.Report, 0, len(items))
+					for _, located := range items {
+						reports = append(reports, diagnoseWorkspace(cmd, located, io.Discard))
+					}
+					return writeJSON(cmd.OutOrStdout(), reports)
+				}
 				for _, located := range items {
 					if err := runDoctorCommand(cmd, located); err != nil {
 						return err
@@ -48,11 +57,15 @@ func newDoctorCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if jsonOut {
+				return writeJSON(cmd.OutOrStdout(), diagnoseWorkspace(cmd, located, io.Discard))
+			}
 			return runDoctorCommand(cmd, located)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().BoolVar(&all, "all", false, "diagnose all known workspaces")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "print machine-readable JSON")
 	return cmd
 }
 
@@ -86,9 +99,19 @@ func findDoctorDefinition(path, workspaceID string) (workspace.LocatedDefinition
 }
 
 func runDoctorCommand(cmd *cobra.Command, located workspace.LocatedDefinition) error {
-	runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
-	report := doctor.Diagnose(located, runner)
+	report := diagnoseWorkspace(cmd, located, cmd.OutOrStdout())
 	return writeDoctorReport(cmd.OutOrStdout(), report)
+}
+
+func diagnoseWorkspace(cmd *cobra.Command, located workspace.LocatedDefinition, stdout io.Writer) doctor.Report {
+	runner := newLifecycleRunner(stdout, cmd.ErrOrStderr())
+	return doctor.Diagnose(located, runner)
+}
+
+func writeJSON(out io.Writer, value any) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
 }
 
 func writeDoctorReport(out io.Writer, report doctor.Report) error {

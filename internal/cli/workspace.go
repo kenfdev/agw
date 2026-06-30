@@ -284,6 +284,7 @@ func detectContainerSetup(projectPath string) []string {
 func newWorkspacePrepareCommand() *cobra.Command {
 	var configPath string
 	var outputPath string
+	var agentJSON bool
 
 	cmd := &cobra.Command{
 		Use:   "prepare <workspace>",
@@ -334,6 +335,15 @@ func newWorkspacePrepareCommand() *cobra.Command {
 				return err
 			}
 
+			if agentJSON {
+				if outputPath != "" {
+					if err := os.WriteFile(outputPath, []byte(prompt), 0o644); err != nil {
+						return err
+					}
+				}
+				return writeJSON(cmd.OutOrStdout(), newPrepareAgentPacket(located, prompt, outputPath, networkCandidatesForPrepare(located.Definition, availableNetworks)))
+			}
+
 			if outputPath != "" {
 				return os.WriteFile(outputPath, []byte(prompt), 0o644)
 			}
@@ -344,7 +354,55 @@ func newWorkspacePrepareCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.Flags().StringVar(&outputPath, "output", "", "output file path")
+	cmd.Flags().BoolVar(&agentJSON, "agent-json", false, "print machine-readable agent preparation context")
 	return cmd
+}
+
+type prepareAgentPacket struct {
+	WorkspaceID            string   `json:"workspaceId"`
+	WorkspaceDir           string   `json:"workspaceDir"`
+	PromptPath             string   `json:"promptPath,omitempty"`
+	Service                string   `json:"service"`
+	Workdir                string   `json:"workdir"`
+	Mode                   string   `json:"mode"`
+	Prompt                 string   `json:"prompt"`
+	ExpectedGeneratedFiles []string `json:"expectedGeneratedFiles"`
+	SelectedNetworks       []string `json:"selectedNetworks"`
+	NetworkCandidates      []string `json:"networkCandidates"`
+	SafetyRules            []string `json:"safetyRules"`
+	NextCommands           []string `json:"nextCommands"`
+}
+
+func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPath string, candidates []string) prepareAgentPacket {
+	def := located.Definition
+	selected := networkCandidates(def)
+	mode := "standalone-sidecar"
+	if len(selected) > 0 {
+		mode = "attached-sidecar"
+	}
+	return prepareAgentPacket{
+		WorkspaceID:            def.ID,
+		WorkspaceDir:           filepath.Dir(located.Path),
+		PromptPath:             promptPath,
+		Service:                def.Container.Service,
+		Workdir:                def.Container.Workdir,
+		Mode:                   mode,
+		Prompt:                 prompt,
+		ExpectedGeneratedFiles: []string{"Dockerfile", "compose.yaml"},
+		SelectedNetworks:       selected,
+		NetworkCandidates:      candidates,
+		SafetyRules: []string{
+			"Do not edit target project files.",
+			"Generate files for the AGW workspace directory only.",
+			"Use external networks only when selected in the AGW workspace definition.",
+			"Ask questions before generating files if important information is missing.",
+		},
+		NextCommands: []string{
+			fmt.Sprintf("agw workspace apply %s <generated-dir>", def.ID),
+			fmt.Sprintf("agw doctor %s --json", def.ID),
+			fmt.Sprintf("agw start %s", def.ID),
+		},
+	}
 }
 
 func newWorkspaceApplyCommand() *cobra.Command {

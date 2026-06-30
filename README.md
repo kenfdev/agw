@@ -56,6 +56,13 @@ agw doctor agw --config "$AGW_TEST_CONFIG"
 agw doctor --all --config "$AGW_TEST_CONFIG"
 ```
 
+Agents should use the JSON protocol instead of parsing human output:
+
+```bash
+agw doctor agw --json --config "$AGW_TEST_CONFIG"
+agw workspace prepare agw --agent-json --config "$AGW_TEST_CONFIG"
+```
+
 The state-first TUI shows the same model:
 
 ```bash

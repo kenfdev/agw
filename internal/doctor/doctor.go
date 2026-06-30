@@ -34,16 +34,16 @@ const (
 )
 
 type Check struct {
-	Name   string
-	Status CheckStatus
-	Detail string
+	Name   string      `json:"name"`
+	Status CheckStatus `json:"status"`
+	Detail string      `json:"detail"`
 }
 
 type Report struct {
-	WorkspaceID string
-	State       State
-	Checks      []Check
-	NextAction  string
+	WorkspaceID string  `json:"workspaceId"`
+	State       State   `json:"state"`
+	Checks      []Check `json:"checks"`
+	NextAction  string  `json:"nextAction"`
 }
 
 type Runner interface {
