@@ -127,6 +127,22 @@ func TestDownUsesDockerComposeDown(t *testing.T) {
 	}
 }
 
+func TestLogsUsesDockerComposeLogsWithTail(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if _, err := cli.Logs("/tmp/ws", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "logs", "--tail", "200", "dev"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
 func TestStopUsesDockerComposeStop(t *testing.T) {
 	var got []string
 	cli := CLI{Exec: func(dir string, name string, args ...string) error {

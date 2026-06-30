@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/kenfdev/agw/internal/doctor"
@@ -57,8 +59,13 @@ func newTUICommand() *cobra.Command {
 				report, _ := actions.Refresh(item)
 				reports = append(reports, report)
 			}
-			if err := tui.RunWithReports(items, reports, actions); err != nil {
+			finalModel, err := tui.RunWithReportsResult(items, reports, actions)
+			if err != nil {
 				return fmt.Errorf("tui failed: %w", err)
+			}
+			if item, ok := finalModel.RequestedShellWorkspace(); ok {
+				_, err := actions.OpenShell(item)
+				return err
 			}
 			return nil
 		},
@@ -110,11 +117,23 @@ func (a *tuiActions) Down(item workspace.LocatedDefinition) (string, error) {
 }
 
 func (a *tuiActions) Attach(item workspace.LocatedDefinition) (string, error) {
+	return a.OpenShell(item)
+}
+
+func (a *tuiActions) OpenShell(item workspace.LocatedDefinition) (string, error) {
 	service := strings.TrimSpace(item.Definition.Container.Service)
 	if service == "" {
 		return "", fmt.Errorf("workspace %q has no service configured", item.Definition.ID)
 	}
 	return "", newLifecycleRunner(a.out, a.err).Attach(filepath.Dir(item.Path), service)
+}
+
+func (a *tuiActions) Logs(item workspace.LocatedDefinition) (string, error) {
+	service := strings.TrimSpace(item.Definition.Container.Service)
+	if service == "" {
+		return "", fmt.Errorf("workspace %q has no service configured", item.Definition.ID)
+	}
+	return newLifecycleRunner(a.out, a.err).Logs(filepath.Dir(item.Path), service)
 }
 
 func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
@@ -149,5 +168,65 @@ func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
 }
 
 func (a *tuiActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, error) {
-	return doctor.Diagnose(item, newLifecycleRunner(a.out, a.err)), nil
+	return doctor.Diagnose(item, newLifecycleRunner(io.Discard, io.Discard)), nil
+}
+
+func (a *tuiActions) OpenPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("path must not be blank")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", path)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", "", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (a *tuiActions) EditPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("path must not be blank")
+	}
+	editor := strings.TrimSpace(os.Getenv("EDITOR"))
+	if editor == "" {
+		editor = "vi"
+	}
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", editor, path)
+	} else {
+		cmd = exec.Command("sh", "-c", editor+" \"$1\"", "agw-editor", path)
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = a.out
+	cmd.Stderr = a.err
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (a *tuiActions) CopyText(text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("text must not be blank")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	default:
+		cmd = exec.Command("sh", "-c", "command -v wl-copy >/dev/null 2>&1 && wl-copy || xclip -selection clipboard")
+	}
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return text, nil
 }

@@ -20,6 +20,7 @@ type lifecycleRunner interface {
 	UpDetached(dir string) error
 	Down(dir string) error
 	Stop(dir string) error
+	Logs(dir string, service string) (string, error)
 	Attach(dir string, service string) error
 	ComposeConfig(dir string) error
 	NetworkExists(name string) (bool, error)

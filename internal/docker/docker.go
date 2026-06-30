@@ -2,6 +2,7 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -61,6 +62,15 @@ func (c CLI) UpDetached(dir string) error {
 
 func (c CLI) Down(dir string) error {
 	return c.compose(dir, "docker", "compose", "down")
+}
+
+func (c CLI) Logs(dir string, service string) (string, error) {
+	var out bytes.Buffer
+	withOutput := c
+	withOutput.Out = &out
+	withOutput.Err = &out
+	err := withOutput.compose(dir, "docker", "compose", "logs", "--tail", "200", service)
+	return out.String(), err
 }
 
 func (c CLI) Stop(dir string) error {

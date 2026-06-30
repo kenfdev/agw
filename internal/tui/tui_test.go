@@ -94,15 +94,99 @@ func TestModelInvokesActionForSelectedWorkspace(t *testing.T) {
 	}
 }
 
-func TestModelShowsActionError(t *testing.T) {
-	actions := &fakeActions{statusErr: errors.New("docker unavailable")}
+func TestModelMovesSelectionWithVimKeys(t *testing.T) {
+	items := []workspace.LocatedDefinition{
+		{Definition: workspace.Definition{ID: "first"}},
+		{Definition: workspace.Definition{ID: "second"}},
+	}
+	actions := &fakeActions{buildResult: "built second"}
+	model := NewModelWithActions(items, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+
+	if actions.buildWorkspace != "second" {
+		t.Fatalf("build workspace after j = %q", actions.buildWorkspace)
+	}
+
+	actions.buildWorkspace = ""
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+
+	if actions.buildWorkspace != "first" {
+		t.Fatalf("build workspace after k = %q", actions.buildWorkspace)
+	}
+}
+
+func TestModelShowsShellActionError(t *testing.T) {
+	actions := &fakeActions{shellErr: errors.New("docker unavailable")}
 	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	model = updated.(Model)
 
-	if !strings.Contains(model.View(), "status failed: docker unavailable") {
-		t.Fatalf("view missing action error:\n%s", model.View())
+	if actions.shellCalls != 0 {
+		t.Fatalf("shell calls = %d, want 0 before TUI exits", actions.shellCalls)
+	}
+	if !model.RequestedShell() {
+		t.Fatal("shell was not requested")
+	}
+	if !model.quitting {
+		t.Fatal("model did not quit for shell handoff")
+	}
+}
+
+func TestModelInitialViewUsesK9sStyleChrome(t *testing.T) {
+	model := NewModelWithReports([]doctor.Report{{WorkspaceID: "agw", State: doctor.StateRunning}}, nil)
+	view := model.View()
+	for _, want := range []string{"AGW / Workspaces", "WORKSPACE", "STATE", "Logs", "Keys", "j/k"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestModelUsesWindowSizeForFullScreenBorderedLayout(t *testing.T) {
+	model := NewModel([]workspace.LocatedDefinition{{Definition: workspace.Definition{
+		ID:        "agw",
+		Container: workspace.Container{Service: "dev"},
+	}}})
+
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(Model)
+	view := model.View()
+
+	for _, want := range []string{"╭", "╰", "AGW / Workspaces", "Details", "Logs"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	lines := strings.Split(view, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("line count = %d, want 24\n%s", len(lines), view)
+	}
+}
+
+func TestModelViewerUsesFullScreenBorderedLayout(t *testing.T) {
+	actions := &fakeActions{logsResult: "ready"}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	model = updated.(Model)
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	view := updated.(Model).View()
+
+	for _, want := range []string{"╭", "Logs", "ready", "esc back"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("viewer missing %q:\n%s", want, view)
+		}
+	}
+	if lines := strings.Split(view, "\n"); len(lines) != 20 {
+		t.Fatalf("line count = %d, want 20\n%s", len(lines), view)
 	}
 }
 
@@ -122,10 +206,15 @@ type fakeActions struct {
 	buildWorkspace string
 	buildResult    string
 	prepareResult  string
+	logsResult     string
 	refreshReport  doctor.Report
 	refreshCalls   int
 	lastRefresh    workspace.LocatedDefinition
 	statusErr      error
+	shellErr       error
+	shellCalls     int
+	openPath       string
+	copiedText     string
 }
 
 func (a *fakeActions) Status(workspace.LocatedDefinition) (string, error) {
@@ -145,4 +234,205 @@ func (a *fakeActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, 
 	a.refreshCalls++
 	a.lastRefresh = item
 	return a.refreshReport, nil
+}
+func (a *fakeActions) Logs(workspace.LocatedDefinition) (string, error) {
+	return a.logsResult, nil
+}
+func (a *fakeActions) OpenShell(workspace.LocatedDefinition) (string, error) {
+	a.shellCalls++
+	return "", a.shellErr
+}
+func (a *fakeActions) OpenPath(path string) (string, error) {
+	a.openPath = path
+	return path, nil
+}
+func (a *fakeActions) EditPath(string) (string, error) { return "", nil }
+func (a *fakeActions) CopyText(text string) (string, error) {
+	a.copiedText = text
+	return text, nil
+}
+
+func TestModelOpensReadOnlyWorkspaceFiles(t *testing.T) {
+	item := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Workspace: workspace.Workspace{Dir: "workspaces/agw"},
+		},
+		Path: "/tmp/agw/agw.yaml",
+	}
+	model := NewModelWithActions([]workspace.LocatedDefinition{item}, &fakeActions{})
+
+	for _, tc := range []struct {
+		key  string
+		want string
+	}{
+		{key: "d", want: "agw.yaml"},
+		{key: "c", want: "compose.yaml"},
+		{key: "f", want: "Dockerfile"},
+	} {
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tc.key)})
+		got := updated.(Model).View()
+		if !strings.Contains(got, tc.want) || !strings.Contains(got, "Viewer") {
+			t.Fatalf("key %q view missing viewer title %q:\n%s", tc.key, tc.want, got)
+		}
+	}
+}
+
+func TestModelOpensLogsViewer(t *testing.T) {
+	actions := &fakeActions{logsResult: "web-1 ready"}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	view := updated.(Model).View()
+	if !strings.Contains(view, "Logs") || !strings.Contains(view, "web-1 ready") {
+		t.Fatalf("view missing logs:\n%s", view)
+	}
+}
+
+func TestModelFiltersWorkspaces(t *testing.T) {
+	model := NewModel([]workspace.LocatedDefinition{
+		{Definition: workspace.Definition{ID: "api"}},
+		{Definition: workspace.Definition{ID: "web"}},
+	})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("we")})
+	model = updated.(Model)
+
+	view := model.View()
+	if strings.Contains(view, "api") || !strings.Contains(view, "web") || !strings.Contains(view, "Filter: we") {
+		t.Fatalf("filtered view mismatch:\n%s", view)
+	}
+}
+
+func TestModelShowsHelpAndCommandPalette(t *testing.T) {
+	model := NewModel([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	if view := updated.(Model).View(); !strings.Contains(view, "Help") || !strings.Contains(view, "l logs") || !strings.Contains(view, "ctrl+d stop/down") || strings.Contains(view, "x stop/down") {
+		t.Fatalf("help view mismatch:\n%s", view)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	if view := updated.(Model).View(); !strings.Contains(view, "Commands") || !strings.Contains(view, "open") {
+		t.Fatalf("command view mismatch:\n%s", view)
+	}
+}
+
+func TestModelConfirmsDownAction(t *testing.T) {
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, &fakeActions{})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	model = updated.(Model)
+	view := model.View()
+	for _, want := range []string{"AGW / Workspaces", "WORKSPACE", "Confirm", "Stop workspace agw?"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("confirmation view missing %q:\n%s", want, view)
+		}
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "down ok") {
+		t.Fatalf("view missing down result:\n%s", model.View())
+	}
+}
+
+func TestModelXDoesNotConfirmDown(t *testing.T) {
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, &fakeActions{})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	model = updated.(Model)
+	if strings.Contains(model.View(), "Stop workspace agw?") {
+		t.Fatalf("x should not open confirmation:\n%s", model.View())
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	model = updated.(Model)
+	if strings.Contains(model.View(), "down ok") {
+		t.Fatalf("unexpected down result after x/y:\n%s", model.View())
+	}
+}
+
+func TestModelTabCyclesDetailsView(t *testing.T) {
+	model := NewModel([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	view := updated.(Model).View()
+	if !strings.Contains(view, "Details") {
+		t.Fatalf("tab view missing details:\n%s", view)
+	}
+}
+
+func TestModelCopiesOnlyProjectPathWithY(t *testing.T) {
+	actions := &fakeActions{}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{
+		Definition: workspace.Definition{
+			ID:       "agw",
+			Projects: []workspace.Project{{Name: "app", HostPath: "/src/app"}},
+		},
+	}}, actions)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Y")})
+	model = updated.(Model)
+
+	if actions.copiedText != "/src/app" {
+		t.Fatalf("copied text = %q", actions.copiedText)
+	}
+	if model.quitting || cmd != nil {
+		t.Fatalf("copy should not quit TUI, quitting=%v cmd=%v", model.quitting, cmd)
+	}
+}
+
+func TestModelShowsProjectSelectorForMultipleProjectsBeforeCopying(t *testing.T) {
+	actions := &fakeActions{}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{
+		Definition: workspace.Definition{
+			ID: "agw",
+			Projects: []workspace.Project{
+				{Name: "api", HostPath: "/src/api"},
+				{Name: "web", HostPath: "/src/web"},
+			},
+		},
+	}}, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Y")})
+	model = updated.(Model)
+	view := model.View()
+	if !strings.Contains(view, "Project Path") || !strings.Contains(view, "api") || !strings.Contains(view, "web") {
+		t.Fatalf("project selector view mismatch:\n%s", view)
+	}
+	if actions.copiedText != "" {
+		t.Fatalf("copied text before selection = %q", actions.copiedText)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if actions.copiedText != "/src/web" {
+		t.Fatalf("copied text = %q", actions.copiedText)
+	}
+	if strings.Contains(model.View(), "Project Path") {
+		t.Fatalf("selector did not close:\n%s", model.View())
+	}
+}
+
+func TestModelJDoesNotJumpOrQuit(t *testing.T) {
+	actions := &fakeActions{}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{
+		Definition: workspace.Definition{
+			ID:       "agw",
+			Projects: []workspace.Project{{Name: "app", HostPath: "/src/app"}},
+		},
+	}}, actions)
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("J")})
+	model = updated.(Model)
+
+	if actions.openPath != "" || actions.copiedText != "" || model.quitting || cmd != nil {
+		t.Fatalf("J should be inert, open=%q copy=%q quitting=%v cmd=%v", actions.openPath, actions.copiedText, model.quitting, cmd)
+	}
 }

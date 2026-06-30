@@ -483,6 +483,12 @@ func (r *lifecycleFakeRunner) Stop(dir string) error {
 	return nil
 }
 
+func (r *lifecycleFakeRunner) Logs(dir string, service string) (string, error) {
+	_ = dir
+	_ = service
+	return "", nil
+}
+
 func (r *lifecycleFakeRunner) Attach(dir string, service string) error {
 	r.attachDir = dir
 	r.attachService = service

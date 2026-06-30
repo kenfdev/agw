@@ -163,12 +163,44 @@ AGW can include personal development-environment guidance in workspace
 preparation prompts. This is natural-language guidance for the agent that
 generates workspace files, not a shared Dockerfile template.
 
-Global guidance in `config.yaml`:
+For a personal default, place your base container prompt in a Markdown file and
+point AGW at it from your user config. The LLM should do this during initial
+AGW setup when you ask it to configure your workspace preferences.
+
+Recommended location:
+
+```text
+~/.config/agw/base-environment.md
+```
+
+Global guidance in `~/.config/agw/config.yaml`:
 
 ```yaml
 baseEnvironment:
-  guidancePath: /Users/me/.config/agw/base-environment.md
+  guidancePath: base-environment.md
 ```
+
+The guidance file should describe preferences the LLM adapts into generated
+workspace files. For example, it can tell the LLM which tools you normally
+want available and any constraints it should preserve:
+
+````markdown
+# Personal base container prompt
+
+Install the tools I commonly use in development containers:
+
+- git
+- openssh-client
+- tmux
+- fzf
+- ripgrep
+- fd
+- gh
+- neovim
+
+Prefer project-declared runtime versions over my defaults.
+Do not bake secrets into the image.
+````
 
 Workspace-specific guidance in `agw.yaml`:
 
