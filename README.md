@@ -47,6 +47,31 @@ under `agw/config.yaml`. Set `AGW_CONFIG` to use a specific config file:
 export AGW_CONFIG="$HOME/.config/agw/config.yaml"
 ```
 
+## Base environment guidance
+
+AGW can include personal development-environment guidance in workspace
+preparation prompts. This is natural-language guidance for the agent that
+generates workspace files, not a shared Dockerfile template.
+
+Global guidance in `config.yaml`:
+
+```yaml
+baseEnvironment:
+  guidancePath: /Users/me/.config/agw/base-environment.md
+```
+
+Workspace-specific guidance in `agw.yaml`:
+
+```yaml
+baseEnvironment:
+  includeGlobal: true
+  guidancePath: environment.md
+```
+
+Set `includeGlobal: false` for a workspace that should ignore the global
+guidance. Relative global paths are resolved from the config file directory.
+Relative workspace paths are resolved from the workspace `agw.yaml` directory.
+
 ## Diagnose workspace state
 
 Use doctor to see what a workspace needs next:
