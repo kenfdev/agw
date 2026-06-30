@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kenfdev/agw/internal/config"
+	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
@@ -117,6 +118,128 @@ func TestLifecycleStartBuildsUpsAndAttachesWhenNotRunning(t *testing.T) {
 	}
 	if runner.attachService != "dev" {
 		t.Fatalf("attach service = %q, want %q", runner.attachService, "dev")
+	}
+}
+
+func TestLifecycleStartDaemonBuildsAndUpsWithoutAttachingWhenNotRunning(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--daemon", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.buildDir != wsPath {
+		t.Fatalf("build dir = %q, want %q", runner.buildDir, wsPath)
+	}
+	if runner.upDetachedDir != wsPath {
+		t.Fatalf("up detached dir = %q, want %q", runner.upDetachedDir, wsPath)
+	}
+	if runner.attachDir != "" {
+		t.Fatalf("attach dir = %q, want empty", runner.attachDir)
+	}
+	if runner.attachService != "" {
+		t.Fatalf("attach service = %q, want empty", runner.attachService)
+	}
+}
+
+func TestLifecycleStartDaemonShortFlagSkipsAttachWhenAlreadyRunning(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{serviceRunning: true}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "-d", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.buildDir != "" {
+		t.Fatalf("build dir = %q, want empty", runner.buildDir)
+	}
+	if runner.upDetachedDir != "" {
+		t.Fatalf("up detached dir = %q, want empty", runner.upDetachedDir)
+	}
+	if runner.attachDir != "" {
+		t.Fatalf("attach dir = %q, want empty", runner.attachDir)
+	}
+	if runner.attachService != "" {
+		t.Fatalf("attach service = %q, want empty", runner.attachService)
+	}
+}
+
+func TestLifecycleStartPassesBuildAndForceRecreateToDetachedUp(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--build", "--force-recreate", "-d", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.buildDir != "" {
+		t.Fatalf("build dir = %q, want empty", runner.buildDir)
+	}
+	if runner.upDetachedDir != wsPath {
+		t.Fatalf("up detached dir = %q, want %q", runner.upDetachedDir, wsPath)
+	}
+	if !runner.upOptions.Build {
+		t.Fatal("up options Build = false, want true")
+	}
+	if !runner.upOptions.ForceRecreate {
+		t.Fatal("up options ForceRecreate = false, want true")
+	}
+	if runner.attachDir != "" {
+		t.Fatalf("attach dir = %q, want empty", runner.attachDir)
+	}
+}
+
+func TestLifecycleStartForceRecreateRunsDetachedUpWhenAlreadyRunning(t *testing.T) {
+	root := t.TempDir()
+	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{serviceRunning: true}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--force-recreate", "-d", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.buildDir != "" {
+		t.Fatalf("build dir = %q, want empty", runner.buildDir)
+	}
+	if runner.upDetachedDir != wsPath {
+		t.Fatalf("up detached dir = %q, want %q", runner.upDetachedDir, wsPath)
+	}
+	if runner.upOptions.Build {
+		t.Fatal("up options Build = true, want false")
+	}
+	if !runner.upOptions.ForceRecreate {
+		t.Fatal("up options ForceRecreate = false, want true")
+	}
+	if runner.attachDir != "" {
+		t.Fatalf("attach dir = %q, want empty", runner.attachDir)
 	}
 }
 
@@ -319,6 +442,9 @@ func TestLifecycleHelpDescribesExternalDockerCLI(t *testing.T) {
 		want string
 	}{
 		{args: []string{"start", "--help"}, want: "Start the AGW workspace"},
+		{args: []string{"start", "--help"}, want: "--daemon"},
+		{args: []string{"start", "--help"}, want: "--build"},
+		{args: []string{"start", "--help"}, want: "--force-recreate"},
 		{args: []string{"stop", "--help"}, want: "Stop the AGW workspace"},
 		{args: []string{"build", "--help"}, want: "Run external Docker CLI build"},
 		{args: []string{"up", "--help"}, want: "Run external Docker CLI up"},
@@ -448,6 +574,7 @@ type lifecycleFakeRunner struct {
 	buildDir      string
 	upDir         string
 	upDetachedDir string
+	upOptions     docker.UpOptions
 	downDir       string
 	stopDir       string
 	attachDir     string
@@ -470,6 +597,12 @@ func (r *lifecycleFakeRunner) Up(dir string) error {
 
 func (r *lifecycleFakeRunner) UpDetached(dir string) error {
 	r.upDetachedDir = dir
+	return nil
+}
+
+func (r *lifecycleFakeRunner) UpDetachedWithOptions(dir string, opts docker.UpOptions) error {
+	r.upDetachedDir = dir
+	r.upOptions = opts
 	return nil
 }
 

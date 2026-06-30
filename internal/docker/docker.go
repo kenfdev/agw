@@ -28,6 +28,11 @@ type CLI struct {
 	Exec func(dir string, name string, args ...string) error
 }
 
+type UpOptions struct {
+	Build         bool
+	ForceRecreate bool
+}
+
 var runNetworkInspect = func(name string) ([]byte, error) {
 	cmd := exec.Command("docker", "network", "inspect", name)
 	return cmd.CombinedOutput()
@@ -58,6 +63,17 @@ func (c CLI) Up(dir string) error {
 
 func (c CLI) UpDetached(dir string) error {
 	return c.compose(dir, "docker", "compose", "up", "-d")
+}
+
+func (c CLI) UpDetachedWithOptions(dir string, opts UpOptions) error {
+	args := []string{"docker", "compose", "up", "-d"}
+	if opts.Build {
+		args = append(args, "--build")
+	}
+	if opts.ForceRecreate {
+		args = append(args, "--force-recreate")
+	}
+	return c.compose(dir, args...)
 }
 
 func (c CLI) Down(dir string) error {

@@ -111,6 +111,22 @@ func TestUpDetachedUsesDockerComposeUpDetached(t *testing.T) {
 	}
 }
 
+func TestUpDetachedWithOptionsUsesDockerComposeUpDetachedFlags(t *testing.T) {
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		_ = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	if err := cli.UpDetachedWithOptions("/tmp/ws", UpOptions{Build: true, ForceRecreate: true}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "up", "-d", "--build", "--force-recreate"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
 func TestDownUsesDockerComposeDown(t *testing.T) {
 	var got []string
 	cli := CLI{Exec: func(dir string, name string, args ...string) error {

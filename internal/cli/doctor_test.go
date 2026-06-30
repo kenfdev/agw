@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kenfdev/agw/internal/docker"
 )
 
 func TestDoctorCommandPrintsWorkspaceState(t *testing.T) {
@@ -148,9 +150,12 @@ type noisyDoctorRunner struct {
 	out io.Writer
 }
 
-func (r noisyDoctorRunner) Build(string) error                  { return nil }
-func (r noisyDoctorRunner) Up(string) error                     { return nil }
-func (r noisyDoctorRunner) UpDetached(string) error             { return nil }
+func (r noisyDoctorRunner) Build(string) error      { return nil }
+func (r noisyDoctorRunner) Up(string) error         { return nil }
+func (r noisyDoctorRunner) UpDetached(string) error { return nil }
+func (r noisyDoctorRunner) UpDetachedWithOptions(string, docker.UpOptions) error {
+	return nil
+}
 func (r noisyDoctorRunner) Down(string) error                   { return nil }
 func (r noisyDoctorRunner) Stop(string) error                   { return nil }
 func (r noisyDoctorRunner) Logs(string, string) (string, error) { return "", nil }

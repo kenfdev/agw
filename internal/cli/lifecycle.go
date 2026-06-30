@@ -18,6 +18,7 @@ type lifecycleRunner interface {
 	Build(dir string) error
 	Up(dir string) error
 	UpDetached(dir string) error
+	UpDetachedWithOptions(dir string, opts docker.UpOptions) error
 	Down(dir string) error
 	Stop(dir string) error
 	Logs(dir string, service string) (string, error)
@@ -33,6 +34,9 @@ var newLifecycleRunner = func(stdout, stderr io.Writer) lifecycleRunner {
 
 func newLifecycleStartCommand() *cobra.Command {
 	var configPath string
+	var daemon bool
+	var build bool
+	var forceRecreate bool
 
 	cmd := &cobra.Command{
 		Use:   "start <workspace>",
@@ -50,15 +54,29 @@ func newLifecycleStartCommand() *cobra.Command {
 			dir := filepath.Dir(located.Path)
 			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
 			report := doctor.Diagnose(located, runner)
+			upOptions := docker.UpOptions{Build: build, ForceRecreate: forceRecreate}
 			switch report.State {
 			case doctor.StateRunning:
+				if upOptions.Build || upOptions.ForceRecreate {
+					if err := runner.UpDetachedWithOptions(dir, upOptions); err != nil {
+						return err
+					}
+				}
+				if daemon {
+					return nil
+				}
 				return runner.Attach(dir, service)
 			case doctor.StateNotRunning:
-				if err := runner.Build(dir); err != nil {
+				if !upOptions.Build {
+					if err := runner.Build(dir); err != nil {
+						return err
+					}
+				}
+				if err := runner.UpDetachedWithOptions(dir, upOptions); err != nil {
 					return err
 				}
-				if err := runner.UpDetached(dir); err != nil {
-					return err
+				if daemon {
+					return nil
 				}
 				return runner.Attach(dir, service)
 			default:
@@ -70,6 +88,9 @@ func newLifecycleStartCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
+	cmd.Flags().BoolVarP(&daemon, "daemon", "d", false, "start without attaching")
+	cmd.Flags().BoolVar(&build, "build", false, "build images before starting")
+	cmd.Flags().BoolVar(&forceRecreate, "force-recreate", false, "recreate containers even if their configuration and image have not changed")
 	return cmd
 }
 
