@@ -66,3 +66,46 @@ func TestRenderPromptTreatsExternalNetworksAsSelectedOnly(t *testing.T) {
 		t.Fatalf("expected no candidates message, got:\n%s", out)
 	}
 }
+
+func TestRenderPromptContainsBaseEnvironmentGuidance(t *testing.T) {
+	out, err := Render(Input{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		},
+		BaseEnvironment: BaseEnvironmentGuidance{
+			Global:    "Prefer my devcontainer-features repository.",
+			Workspace: "This workspace needs PostgreSQL client tools.",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"## Base Environment Guidance",
+		"not a fixed template",
+		"### Global Guidance",
+		"Prefer my devcontainer-features repository.",
+		"### Workspace Guidance",
+		"This workspace needs PostgreSQL client tools.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderPromptOmitsBaseEnvironmentSectionWhenEmpty(t *testing.T) {
+	out, err := Render(Input{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "## Base Environment Guidance") {
+		t.Fatalf("unexpected guidance section:\n%s", out)
+	}
+}

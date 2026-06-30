@@ -12,6 +12,12 @@ type Input struct {
 	Definition        workspace.Definition
 	Projects          []scanner.ProjectSnapshot
 	NetworkCandidates []string
+	BaseEnvironment   BaseEnvironmentGuidance
+}
+
+type BaseEnvironmentGuidance struct {
+	Global    string
+	Workspace string
 }
 
 func Render(input Input) (string, error) {
@@ -41,6 +47,27 @@ func Render(input Input) (string, error) {
 	} else {
 		for _, n := range input.NetworkCandidates {
 			fmt.Fprintf(&b, "- `%s`\n", n)
+		}
+	}
+
+	if input.BaseEnvironment.Global != "" || input.BaseEnvironment.Workspace != "" {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "## Base Environment Guidance")
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Use this guidance when generating the workspace Dockerfile and Compose files.")
+		fmt.Fprintln(&b, "It is not a fixed template. Adapt it to the project's base image, package manager, language runtime, and build constraints.")
+		fmt.Fprintln(&b, "Reference snippets are examples, not content to paste blindly.")
+		if input.BaseEnvironment.Global != "" {
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, "### Global Guidance")
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, input.BaseEnvironment.Global)
+		}
+		if input.BaseEnvironment.Workspace != "" {
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, "### Workspace Guidance")
+			fmt.Fprintln(&b)
+			fmt.Fprintln(&b, input.BaseEnvironment.Workspace)
 		}
 	}
 
