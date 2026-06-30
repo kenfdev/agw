@@ -207,7 +207,7 @@ func TestLifecycleStopUsesRunnerWithWorkspaceDir(t *testing.T) {
 	}
 }
 
-func TestLifecycleStatusShowsServiceAndNetworks(t *testing.T) {
+func TestLifecycleStatusShowsLifecycleSummary(t *testing.T) {
 	root := t.TempDir()
 	def := workspace.Definition{
 		ID:        "agw",
@@ -216,16 +216,16 @@ func TestLifecycleStatusShowsServiceAndNetworks(t *testing.T) {
 		Networks: &workspace.Networks{
 			Attach: []workspace.NetworkAttachment{
 				{Name: "acme_default"},
-				{Name: "missing"},
 			},
 		},
 	}
-	cfgPath, _ := mustWriteLifecycleDefinition(t, root, "agw", def)
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "acme_default")
 
 	runner := &lifecycleFakeRunner{
+		serviceRunning: true,
 		networkExists: map[string]bool{
 			"acme_default": true,
-			"missing":      false,
 		},
 	}
 	oldRunner := newLifecycleRunner
@@ -240,29 +240,59 @@ func TestLifecycleStatusShowsServiceAndNetworks(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	output := out.String()
-	for _, want := range []string{"Workspace: agw", "Service: dev", "Network acme_default exists: true", "Network missing exists: false"} {
+	for _, want := range []string{
+		"Workspace: agw",
+		"State: running",
+		"Service: dev",
+		"Directory: " + wsPath,
+		"Network acme_default: available",
+		"Next:",
+		"agw start agw",
+	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status output missing %q:\n%s", want, output)
 		}
 	}
 }
 
-func TestLifecycleListShowsWorkspaceIdsAndStorage(t *testing.T) {
+func TestLifecycleStatusWithoutWorkspaceShowsHelp(t *testing.T) {
+	var out bytes.Buffer
+	cmd := NewRootCommand("test")
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"status"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "Usage:\n  agw status [workspace]") {
+		t.Fatalf("status help missing usage:\n%s", output)
+	}
+}
+
+func TestLifecycleListShowsHeaderAndLifecycleState(t *testing.T) {
 	root := t.TempDir()
 	storageA := filepath.Join("storage", "alpha")
-	_, err := createLifecycleDefinition(t, root, "alpha", "dev", storageA)
+	wsA, err := createLifecycleDefinition(t, root, "alpha", "dev", storageA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = createLifecycleDefinition(t, root, "beta", "api", filepath.Join("storage", "beta"))
+	mustWriteStartWorkspaceFiles(t, wsA, "dev", "")
+	wsB, err := createLifecycleDefinition(t, root, "beta", "api", filepath.Join("storage", "beta"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	mustWriteStartWorkspaceFiles(t, wsB, "api", "")
 
 	cfgPath := filepath.Join(root, "config.yaml")
 	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
 		t.Fatal(err)
 	}
+
+	runner := &lifecycleFakeRunner{serviceRunningByDir: map[string]bool{wsA: true, wsB: false}}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
 
 	var out bytes.Buffer
 	cmd := NewRootCommand("test")
@@ -272,11 +302,14 @@ func TestLifecycleListShowsWorkspaceIdsAndStorage(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	list := out.String()
-	if !strings.Contains(list, "alpha\t"+storageA) {
-		t.Fatalf("list output missing alpha: %s", list)
-	}
-	if !strings.Contains(list, "beta\tstorage/beta") {
-		t.Fatalf("list output missing beta: %s", list)
+	for _, want := range []string{
+		"WORKSPACE\tSTATE\tSERVICE\tDIR",
+		"alpha\trunning\tdev\t" + storageA,
+		"beta\tnot-running\tapi\tstorage/beta",
+	} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("list output missing %q:\n%s", want, list)
+		}
 	}
 }
 
@@ -420,8 +453,9 @@ type lifecycleFakeRunner struct {
 	attachDir     string
 	attachService string
 
-	networkExists  map[string]bool
-	serviceRunning bool
+	networkExists       map[string]bool
+	serviceRunning      bool
+	serviceRunningByDir map[string]bool
 }
 
 func (r *lifecycleFakeRunner) Build(dir string) error {
@@ -465,5 +499,8 @@ func (r *lifecycleFakeRunner) NetworkExists(name string) (bool, error) {
 }
 
 func (r *lifecycleFakeRunner) ServiceRunning(dir string, service string) (bool, error) {
+	if r.serviceRunningByDir != nil {
+		return r.serviceRunningByDir[dir], nil
+	}
 	return r.serviceRunning, nil
 }

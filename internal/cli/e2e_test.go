@@ -145,7 +145,10 @@ func TestEndToEndWorkspaceWorkflow(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
-	if !strings.Contains(out.String(), "agw\t"+storage) {
+	if !strings.Contains(out.String(), "WORKSPACE\tSTATE\tSERVICE\tDIR") {
+		t.Fatalf("list output missing header: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "agw\t") || !strings.Contains(out.String(), "\tdev\t"+storage) {
 		t.Fatalf("list output missing workspace: %s", out.String())
 	}
 }

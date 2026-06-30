@@ -180,41 +180,28 @@ func newLifecycleStatusCommand() *cobra.Command {
 	var configPath string
 
 	cmd := &cobra.Command{
-		Use:   "status <workspace>",
+		Use:   "status [workspace]",
 		Short: "Show workspace lifecycle status",
-		Args:  cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("accepts 1 arg(s), received %d", len(args))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
 			located, err := findLocatedDefinition(configPath, args[0])
 			if err != nil {
 				return err
 			}
-			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
-			out := cmd.OutOrStdout()
-
-			_, err = fmt.Fprintln(out, "Workspace:", located.Definition.ID)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprintln(out, "Service:", located.Definition.Container.Service)
-			if err != nil {
-				return err
-			}
-			attachments := networkCandidates(located.Definition)
-			if len(attachments) == 0 {
-				_, err = fmt.Fprintln(out, "Networks: none")
-				return err
-			}
-			for _, network := range attachments {
-				exists, err := runner.NetworkExists(network)
-				if err != nil {
-					return err
-				}
-				_, err = fmt.Fprintf(out, "Network %s exists: %t\n", network, exists)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
+			runner := newLifecycleRunner(io.Discard, io.Discard)
+			report := doctor.Diagnose(located, runner)
+			return writeLifecycleStatus(cmd.OutOrStdout(), located, runner, report)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -234,8 +221,13 @@ func newLifecycleListCommand() *cobra.Command {
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Definition.ID < items[j].Definition.ID })
 			out := cmd.OutOrStdout()
+			runner := newLifecycleRunner(io.Discard, io.Discard)
+			if _, err := fmt.Fprintln(out, "WORKSPACE\tSTATE\tSERVICE\tDIR"); err != nil {
+				return err
+			}
 			for _, item := range items {
-				_, err := fmt.Fprintf(out, "%s\t%s\n", item.Definition.ID, item.Definition.Workspace.Dir)
+				report := doctor.Diagnose(item, runner)
+				_, err := fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", item.Definition.ID, report.State, item.Definition.Container.Service, item.Definition.Workspace.Dir)
 				if err != nil {
 					return err
 				}
@@ -245,6 +237,59 @@ func newLifecycleListCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	return cmd
+}
+
+func writeLifecycleStatus(out io.Writer, located workspace.LocatedDefinition, runner lifecycleRunner, report doctor.Report) error {
+	if _, err := fmt.Fprintf(out, "Workspace: %s\n", located.Definition.ID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "State: %s\n", report.State); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Service: %s\n", located.Definition.Container.Service); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Directory: %s\n", filepath.Dir(located.Path)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(out, "\nNetworks:"); err != nil {
+		return err
+	}
+	attachments := networkCandidates(located.Definition)
+	if len(attachments) == 0 {
+		if _, err := fmt.Fprintln(out, "  none"); err != nil {
+			return err
+		}
+	}
+	for _, network := range attachments {
+		exists, err := runner.NetworkExists(network)
+		status := "missing"
+		if err != nil {
+			status = "unknown: " + err.Error()
+		} else if exists {
+			status = "available"
+		}
+		if _, err := fmt.Fprintf(out, "  Network %s: %s\n", network, status); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(out, "\nChecks:"); err != nil {
+		return err
+	}
+	for _, check := range report.Checks {
+		if _, err := fmt.Fprintf(out, "  %s %s: %s\n", checkStatusSymbol(check.Status), check.Name, check.Detail); err != nil {
+			return err
+		}
+	}
+	next := report.NextAction
+	if strings.TrimSpace(next) == "" {
+		next = "none"
+	}
+	if _, err := fmt.Fprintln(out, "\nNext:"); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(out, "  %s\n", next)
+	return err
 }
 
 func listDefinitions(path string) ([]workspace.LocatedDefinition, error) {
