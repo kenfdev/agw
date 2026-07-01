@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -42,7 +43,33 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return Config{}, err
 	}
+	cfg.WorkspaceRoots = normalizeWorkspaceRoots(cfg.WorkspaceRoots)
 	return cfg, nil
+}
+
+func normalizeWorkspaceRoots(roots []string) []string {
+	out := make([]string, len(roots))
+	for i, root := range roots {
+		out[i] = normalizePath(root)
+	}
+	return out
+}
+
+func normalizePath(path string) string {
+	if path == "" {
+		return path
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if path == "~" {
+				path = home
+			} else {
+				path = filepath.Join(home, path[2:])
+			}
+		}
+	}
+	path = os.ExpandEnv(path)
+	return filepath.Clean(path)
 }
 
 func Save(path string, cfg Config) error {

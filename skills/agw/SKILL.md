@@ -19,6 +19,7 @@ my workspace". The agent uses JSON and agent-oriented CLI output internally.
    - Read command-specific help before using less familiar commands.
 2. Read `README.md` when workflow context is needed.
 3. Run `agw doctor <workspace> --json` or `agw doctor --all --json` before lifecycle decisions when a workspace already exists.
+4. Configured `workspaceRoots` may use `~/`, `$HOME`, or `${HOME}`; the CLI expands and cleans these paths when loading config.
 
 ## Operating Model
 

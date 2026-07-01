@@ -157,6 +157,9 @@ under `agw/config.yaml`. Set `AGW_CONFIG` to use a specific config file:
 export AGW_CONFIG="$HOME/.config/agw/config.yaml"
 ```
 
+`workspaceRoots` entries may use `~/`, `$HOME`, or `${HOME}`. AGW expands
+those values and cleans the resulting path when loading the config.
+
 ## Base environment guidance
 
 AGW can include personal development-environment guidance in workspace

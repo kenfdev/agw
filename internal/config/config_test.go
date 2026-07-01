@@ -1,7 +1,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -45,5 +47,34 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	}
 	if got.BaseEnvironment.GuidancePath != "base-environment.md" {
 		t.Fatalf("BaseEnvironment.GuidancePath = %q", got.BaseEnvironment.GuidancePath)
+	}
+}
+
+func TestLoadExpandsWorkspaceRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := []byte(`
+workspaceRoots:
+  - ~/agw
+  - $HOME/agw/../other
+  - ${HOME}/third
+`)
+	if err := os.WriteFile(path, yaml, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	want := []string{
+		filepath.Join(home, "agw"),
+		filepath.Join(home, "other"),
+		filepath.Join(home, "third"),
+	}
+	if !reflect.DeepEqual(got.WorkspaceRoots, want) {
+		t.Fatalf("WorkspaceRoots = %#v, want %#v", got.WorkspaceRoots, want)
 	}
 }
