@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,7 +36,6 @@ func TestEndToEndWorkspaceWorkflow(t *testing.T) {
 
 	configPath := filepath.Join(root, "config.yaml")
 	storage := filepath.Join("workspaces", "github.com", "kenfdev", "agw")
-	workspacePrompt := filepath.Join(root, "prompt.md")
 
 	_, filePath, _, ok := runtime.Caller(0)
 	if !ok {
@@ -94,17 +94,29 @@ func TestEndToEndWorkspaceWorkflow(t *testing.T) {
 		t.Fatalf("expected agw.yaml to exist: %v", err)
 	}
 
+	var prepareOut bytes.Buffer
+	cmd.SetOut(&prepareOut)
 	cmd.SetArgs([]string{
 		"workspace", "prepare",
 		"agw",
 		"--config", configPath,
-		"--output", workspacePrompt,
+		"--agent-json",
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("workspace prepare failed: %v", err)
 	}
-	if _, err := os.Stat(workspacePrompt); err != nil {
-		t.Fatalf("expected prompt.md to exist: %v", err)
+	var packet struct {
+		WorkspaceID string `json:"workspaceId"`
+		Prompt      string `json:"prompt"`
+	}
+	if err := json.Unmarshal(prepareOut.Bytes(), &packet); err != nil {
+		t.Fatalf("prepare agent JSON is invalid: %v\n%s", err, prepareOut.String())
+	}
+	if packet.WorkspaceID != "agw" || !strings.Contains(packet.Prompt, "# AGW Workspace Preparation: agw") {
+		t.Fatalf("prepare agent packet missing expected content: %#v", packet)
+	}
+	if _, err := os.Stat(filepath.Join(root, storage, "prompt.md")); !os.IsNotExist(err) {
+		t.Fatalf("prompt.md should not be written to the workspace, stat err = %v", err)
 	}
 	if err := assertDirectoryFilesUnchanged(projectPath, projectTreeBefore); err != nil {
 		t.Fatalf("target project was modified by workspace prepare: %v", err)

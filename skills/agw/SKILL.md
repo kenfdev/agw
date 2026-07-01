@@ -39,8 +39,9 @@ up an AGW workspace, prefer:
 
 ```bash
 agw workspace new --from /path/to/project
-agw workspace prepare <workspace> --agent-json --output <workspace-dir>/prompt.md
-agw workspace apply <workspace> <generated-dir>
+agw workspace prepare <workspace> --agent-json
+# Generate workspace files in a temporary directory outside the workspace.
+agw workspace apply <workspace> <temp-generated-dir>
 agw start <workspace>
 ```
 
@@ -95,9 +96,9 @@ workspace files:
 
 ```bash
 agw doctor <workspace> --json
-agw workspace prepare <workspace> --agent-json --output <workspace-dir>/prompt.md
+agw workspace prepare <workspace> --agent-json
 # Generate updated workspace files from the prompt, preserving project-specific choices.
-agw workspace apply <workspace> <generated-dir>
+agw workspace apply <workspace> <temp-generated-dir>
 ```
 
 After applying, explain whether a rebuild or restart is needed. Only run

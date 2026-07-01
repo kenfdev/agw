@@ -11,7 +11,7 @@ import (
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
-func TestDiagnoseNeedsPrepareWhenPromptMissing(t *testing.T) {
+func TestDiagnoseNeedsPrepareWhenComposeMissing(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	mustMkdir(t, project)
@@ -30,7 +30,7 @@ func TestDiagnoseNeedsPrepareWhenPromptMissing(t *testing.T) {
 		t.Fatalf("NextAction = %q", report.NextAction)
 	}
 	assertCheck(t, report, "project path", CheckPass)
-	assertCheck(t, report, "prompt", CheckFail)
+	assertCheck(t, report, "compose.yaml", CheckFail)
 }
 
 func TestDiagnoseBrokenWhenProjectPathMissing(t *testing.T) {
@@ -49,13 +49,12 @@ func TestDiagnoseBrokenWhenProjectPathMissing(t *testing.T) {
 	assertCheck(t, report, "project path", CheckFail)
 }
 
-func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
+func TestDiagnoseNeedsPrepareWhenComposeMissingWithoutPromptMarker(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
 	mustMkdir(t, project)
 	ws := filepath.Join(root, "ws")
 	mustMkdir(t, ws)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	located := workspace.LocatedDefinition{
 		Definition: workspace.Definition{ID: "agw", Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}}},
 		Path:       filepath.Join(ws, "agw.yaml"),
@@ -63,18 +62,17 @@ func TestDiagnoseNeedsApplyWhenComposeMissing(t *testing.T) {
 
 	report := Diagnose(located, fakeRunner{})
 
-	if report.State != StateNeedsApply {
-		t.Fatalf("State = %q, want %q", report.State, StateNeedsApply)
+	if report.State != StateNeedsPrepare {
+		t.Fatalf("State = %q, want %q", report.State, StateNeedsPrepare)
 	}
 	assertCheck(t, report, "compose.yaml", CheckFail)
-	if report.NextAction != "agw workspace apply agw <generated-dir>" {
+	if report.NextAction != "agw workspace prepare agw --agent-json" {
 		t.Fatalf("NextAction = %q", report.NextAction)
 	}
 }
 
 func TestDiagnoseBrokenWhenComposeStatFails(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	located := workspace.LocatedDefinition{
 		Definition: workspace.Definition{
 			ID:        "agw",
@@ -100,7 +98,6 @@ func TestDiagnoseBrokenWhenComposeStatFails(t *testing.T) {
 
 func TestDiagnoseBrokenWhenComposeMalformed(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n[invalid\n",
 		project,
@@ -124,7 +121,6 @@ func TestDiagnoseBrokenWhenComposeMalformed(t *testing.T) {
 
 func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf("services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: target_default\n", project))
 	located := workspace.LocatedDefinition{
@@ -149,7 +145,6 @@ func TestDiagnoseBrokenWhenSelectedNetworkMissing(t *testing.T) {
 
 func TestDiagnoseBrokenWhenSelectedNetworkNameBlank(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
@@ -175,7 +170,6 @@ func TestDiagnoseBrokenWhenSelectedNetworkNameBlank(t *testing.T) {
 
 func TestDiagnoseBrokenWhenServiceMissing(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  other:\n    build: .\n    volumes:\n      - %s:/workspace\n",
@@ -200,7 +194,6 @@ func TestDiagnoseBrokenWhenServiceMissing(t *testing.T) {
 
 func TestDiagnoseBrokenWhenMountMissing(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/missing\n",
@@ -225,7 +218,6 @@ func TestDiagnoseBrokenWhenMountMissing(t *testing.T) {
 
 func TestDiagnoseNeedsApplyWhenDockerfileMissing(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
 		project,
@@ -252,7 +244,6 @@ func TestDiagnoseNeedsApplyWhenDockerfileMissing(t *testing.T) {
 
 func TestDiagnoseSkipsDockerfileCheckWhenServiceHasNoBuild(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    image: alpine:latest\n    volumes:\n      - %s:/workspace\n",
 		project,
@@ -281,7 +272,6 @@ func TestDiagnoseStandaloneWorkspaceReportsNoExternalNetworksRequired(t *testing
 
 func TestDiagnoseWarnsWhenNetworkInspectFails(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf("services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: target_default\n", project))
 	located := workspace.LocatedDefinition{
@@ -303,7 +293,6 @@ func TestDiagnoseWarnsWhenNetworkInspectFails(t *testing.T) {
 
 func TestDiagnoseBrokenWhenComposeConfigFails(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
@@ -362,7 +351,6 @@ func validWorkspaceDirs(t *testing.T) (string, string, string) {
 func validLocatedWithCompose(t *testing.T) workspace.LocatedDefinition {
 	t.Helper()
 	_, project, ws := validWorkspaceDirs(t)
-	mustWrite(t, filepath.Join(ws, "prompt.md"), "prompt")
 	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
 		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",

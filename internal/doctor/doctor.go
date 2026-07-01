@@ -66,19 +66,10 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 		}
 		report.add("project path", CheckPass, project.HostPath)
 	}
-	promptPath := filepath.Join(dir, "prompt.md")
-	if _, err := os.Stat(promptPath); err != nil {
-		report.add("prompt", CheckFail, "prompt.md missing")
-		report.State = StateNeedsPrepare
-		report.NextAction = fmt.Sprintf("agw workspace prepare %s --output %s", report.WorkspaceID, promptPath)
-		return report
-	}
-	report.add("prompt", CheckPass, promptPath)
-
 	composePath := filepath.Join(dir, "compose.yaml")
 	if _, err := statFile(composePath); err != nil {
 		if os.IsNotExist(err) {
-			return fail(&report, "compose.yaml", "compose.yaml missing", workspaceApplyAction(report.WorkspaceID), StateNeedsApply)
+			return fail(&report, "compose.yaml", "compose.yaml missing", workspacePrepareAction(report.WorkspaceID), StateNeedsPrepare)
 		}
 		return fail(&report, "compose.yaml", err.Error(), fmt.Sprintf("fix generated workspace files for %s", report.WorkspaceID), StateBroken)
 	}
@@ -207,6 +198,10 @@ func checkBuildDockerfile(workspaceDir string, service compose.Service) (CheckSt
 
 func workspaceApplyAction(workspaceID string) string {
 	return fmt.Sprintf("agw workspace apply %s <generated-dir>", workspaceID)
+}
+
+func workspacePrepareAction(workspaceID string) string {
+	return fmt.Sprintf("agw workspace prepare %s --agent-json", workspaceID)
 }
 
 func buildPaths(build any) (string, string, bool) {

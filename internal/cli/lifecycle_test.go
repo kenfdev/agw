@@ -551,9 +551,6 @@ func mustWriteLifecycleWorkspaceWithNetworks(t *testing.T, root, id, service str
 
 func mustWriteStartWorkspaceFiles(t *testing.T, wsPath, service, externalNetwork string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(wsPath, "prompt.md"), []byte("prompt\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(wsPath, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

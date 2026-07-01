@@ -191,13 +191,13 @@ func TestModelViewerUsesFullScreenBorderedLayout(t *testing.T) {
 }
 
 func TestModelShowsActionResultMessage(t *testing.T) {
-	actions := &fakeActions{prepareResult: "wrote /tmp/agw/prompt.md"}
+	actions := &fakeActions{prepareResult: "rendered preparation prompt for agw"}
 	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
 	model = updated.(Model)
 
-	if !strings.Contains(model.View(), "prepare ok: wrote /tmp/agw/prompt.md") {
+	if !strings.Contains(model.View(), "prepare ok: rendered preparation prompt for agw") {
 		t.Fatalf("view missing prepare result:\n%s", model.View())
 	}
 }

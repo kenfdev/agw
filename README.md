@@ -31,7 +31,7 @@ that skill drive the current `agw` CLI.
 ### One-time local setup
 
 First choose where AGW should keep your personal workspace definitions and
-generated files:
+applied workspace files:
 
 ```bash
 agw config init --root /path/to/personal/agw-root
@@ -54,9 +54,10 @@ More explicit prompt:
 Set up an AGW workspace for this repository using the agw skill. Use the current repository as the project, prefer standalone sidecar mode, and do not modify the target repository.
 ```
 
-The LLM should use the `agw` skill to create a workspace definition, prepare the
-workspace prompt, apply generated workspace files, and start from the current
-CLI behavior instead of guessing project-specific Docker details.
+The LLM should use the `agw` skill to create a workspace definition, render the
+agent preparation packet, stage generated workspace files outside the workspace,
+apply them, and start from the current CLI behavior instead of guessing
+project-specific Docker details.
 
 ### Diagnose an existing workspace
 
@@ -126,8 +127,9 @@ understanding the underlying flow or for debugging a workspace by hand.
 ```bash
 agw config init --root /path/to/personal/agw-root
 agw workspace new --root /path/to/personal/agw-root --id agw --name AGW --workspace-dir workspaces/agw --project agw=/path/to/agw:/workspace --service dev --workdir /workspace
-agw workspace prepare agw --output prompt.md
-agw workspace apply agw ./generated
+agw workspace prepare agw --agent-json
+# Write generated Dockerfile and compose.yaml to a temporary directory.
+agw workspace apply agw /path/to/temp-generated
 agw build agw
 agw up agw
 agw attach agw

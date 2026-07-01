@@ -160,11 +160,7 @@ func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	promptPath := filepath.Join(filepath.Dir(item.Path), "prompt.md")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0o644); err != nil {
-		return "", err
-	}
-	return "wrote " + promptPath, nil
+	return fmt.Sprintf("rendered preparation prompt for %s (%d bytes); use workspace prepare --agent-json for agent generation", item.Definition.ID, len(prompt)), nil
 }
 
 func (a *tuiActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, error) {

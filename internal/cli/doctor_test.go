@@ -92,7 +92,6 @@ func TestDoctorCommandPrintsJSONReport(t *testing.T) {
 func TestDoctorJSONDoesNotIncludeLifecycleCommandOutput(t *testing.T) {
 	root, configPath := createDoctorFixture(t, "agw")
 	workspaceDir := filepath.Join(root, "workspaces", "agw")
-	mustWriteCLI(t, filepath.Join(workspaceDir, "prompt.md"), "prompt")
 	mustWriteCLI(t, filepath.Join(workspaceDir, "Dockerfile"), "FROM alpine\n")
 	mustWriteCLI(t, filepath.Join(workspaceDir, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - "+filepath.Join(root, "projects", "agw")+":/workspace\n")
 

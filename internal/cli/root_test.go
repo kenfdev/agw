@@ -11,7 +11,7 @@ import (
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
-func TestTUIActionsPrepareWritesPromptToWorkspacePromptFile(t *testing.T) {
+func TestTUIActionsPrepareRendersPromptWithoutWritingWorkspacePromptFile(t *testing.T) {
 	projectDir := t.TempDir()
 	workspaceDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/agw"), 0o644); err != nil {
@@ -41,18 +41,14 @@ func TestTUIActionsPrepareWritesPromptToWorkspacePromptFile(t *testing.T) {
 	}
 
 	promptPath := filepath.Join(workspaceDir, "prompt.md")
-	b, err := os.ReadFile(promptPath)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(promptPath); !os.IsNotExist(err) {
+		t.Fatalf("prompt.md should not be written, stat err = %v", err)
 	}
-	if !strings.Contains(string(b), "agw") {
-		t.Fatalf("prompt content missing workspace id:\n%s", string(b))
+	if !strings.Contains(result, "rendered preparation prompt for agw") {
+		t.Fatalf("result = %q", result)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("prepare wrote prompt to command output:\n%s", out.String())
-	}
-	if !strings.Contains(result, promptPath) {
-		t.Fatalf("result = %q, want path %q", result, promptPath)
 	}
 }
 
@@ -66,7 +62,6 @@ func TestTUIActionsRefreshDoesNotWriteLifecycleNoiseToTUIOutput(t *testing.T) {
 	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mustWriteCLI(t, filepath.Join(workspaceDir, "prompt.md"), "prompt")
 	mustWriteCLI(t, filepath.Join(workspaceDir, "Dockerfile"), "FROM alpine\n")
 	mustWriteCLI(t, filepath.Join(workspaceDir, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - "+projectDir+":/workspace\n")
 
