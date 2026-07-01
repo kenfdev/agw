@@ -150,6 +150,15 @@ projects:
     containerPath: /workspace
 ```
 
+If starting the workspace needs a wrapper command, set `lifecycle.start`.
+`agw start` runs it from the workspace directory instead of the default
+`docker compose up -d`, then keeps the normal attach behavior:
+
+```yaml
+lifecycle:
+  start: op run --env-file=.env.1password -- docker compose up -d
+```
+
 By default, AGW stores user configuration in the OS user config directory
 under `agw/config.yaml`. Set `AGW_CONFIG` to use a specific config file:
 

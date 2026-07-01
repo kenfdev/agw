@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/kenfdev/agw/internal/config"
 	"github.com/kenfdev/agw/internal/docker"
@@ -23,6 +24,7 @@ type lifecycleRunner interface {
 	Stop(dir string) error
 	Logs(dir string, service string) (string, error)
 	Attach(dir string, service string) error
+	RunShell(dir string, command string) error
 	ComposeConfig(dir string) error
 	NetworkExists(name string) (bool, error)
 	ServiceRunning(dir string, service string) (bool, error)
@@ -58,7 +60,7 @@ func newLifecycleStartCommand() *cobra.Command {
 			switch report.State {
 			case doctor.StateRunning:
 				if upOptions.Build || upOptions.ForceRecreate {
-					if err := runner.UpDetachedWithOptions(dir, upOptions); err != nil {
+					if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
 						return err
 					}
 				}
@@ -67,12 +69,12 @@ func newLifecycleStartCommand() *cobra.Command {
 				}
 				return runner.Attach(dir, service)
 			case doctor.StateNotRunning:
-				if !upOptions.Build {
+				if strings.TrimSpace(located.Definition.Lifecycle.Start) == "" && !upOptions.Build {
 					if err := runner.Build(dir); err != nil {
 						return err
 					}
 				}
-				if err := runner.UpDetachedWithOptions(dir, upOptions); err != nil {
+				if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
 					return err
 				}
 				if daemon {
@@ -92,6 +94,13 @@ func newLifecycleStartCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&build, "build", false, "build images before starting")
 	cmd.Flags().BoolVar(&forceRecreate, "force-recreate", false, "recreate containers even if their configuration and image have not changed")
 	return cmd
+}
+
+func runLifecycleStartCommand(runner lifecycleRunner, def workspace.Definition, dir string, opts docker.UpOptions) error {
+	if command := strings.TrimSpace(def.Lifecycle.Start); command != "" {
+		return runner.RunShell(dir, command)
+	}
+	return runner.UpDetachedWithOptions(dir, opts)
 }
 
 func newLifecycleStopCommand() *cobra.Command {
@@ -242,7 +251,7 @@ func newLifecycleListCommand() *cobra.Command {
 				return err
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Definition.ID < items[j].Definition.ID })
-			out := cmd.OutOrStdout()
+			out := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			runner := newLifecycleRunner(io.Discard, io.Discard)
 			if _, err := fmt.Fprintln(out, "WORKSPACE\tSTATE\tSERVICE\tDIR"); err != nil {
 				return err
@@ -254,7 +263,7 @@ func newLifecycleListCommand() *cobra.Command {
 					return err
 				}
 			}
-			return nil
+			return out.Flush()
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")

@@ -14,6 +14,7 @@ type Definition struct {
 	Storage         Storage         `yaml:"storage,omitempty"`
 	Container       Container       `yaml:"container"`
 	BaseEnvironment BaseEnvironment `yaml:"baseEnvironment,omitempty"`
+	Lifecycle       Lifecycle       `yaml:"lifecycle,omitempty"`
 	Projects        []Project       `yaml:"projects"`
 	Networks        *Networks       `yaml:"networks,omitempty"`
 }
@@ -35,6 +36,10 @@ type Container struct {
 type BaseEnvironment struct {
 	IncludeGlobal *bool  `yaml:"includeGlobal,omitempty"`
 	GuidancePath  string `yaml:"guidancePath,omitempty"`
+}
+
+type Lifecycle struct {
+	Start string `yaml:"start,omitempty"`
 }
 
 func (d Definition) IncludeGlobalBaseEnvironment() bool {

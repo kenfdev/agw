@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -76,6 +77,11 @@ func (c CLI) UpDetachedWithOptions(dir string, opts UpOptions) error {
 	return c.compose(dir, args...)
 }
 
+func (c CLI) RunShell(dir string, command string) error {
+	name, args := shellCommand(command)
+	return c.compose(dir, append([]string{name}, args...)...)
+}
+
 func (c CLI) Down(dir string) error {
 	return c.compose(dir, "docker", "compose", "down")
 }
@@ -111,6 +117,13 @@ func (c CLI) ServiceRunning(dir string, service string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(string(out)) != "", nil
+}
+
+func shellCommand(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd", []string{"/C", command}
+	}
+	return "sh", []string{"-c", command}
 }
 
 func (c CLI) compose(dir string, args ...string) error {

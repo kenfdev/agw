@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os/exec"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -122,6 +123,30 @@ func TestUpDetachedWithOptionsUsesDockerComposeUpDetachedFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"docker", "compose", "up", "-d", "--build", "--force-recreate"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestRunShellUsesPlatformShellInWorkspaceDir(t *testing.T) {
+	var gotDir string
+	var got []string
+	cli := CLI{Exec: func(dir string, name string, args ...string) error {
+		gotDir = dir
+		got = append([]string{name}, args...)
+		return nil
+	}}
+	command := "op run --env-file=.env.1password -- docker compose up -d"
+	if err := cli.RunShell("/tmp/ws", command); err != nil {
+		t.Fatal(err)
+	}
+	if gotDir != "/tmp/ws" {
+		t.Fatalf("dir = %q, want /tmp/ws", gotDir)
+	}
+	want := []string{"sh", "-c", command}
+	if runtime.GOOS == "windows" {
+		want = []string{"cmd", "/C", command}
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}

@@ -30,6 +30,7 @@ func Render(input Input) (string, error) {
 	fmt.Fprintln(&b, "Do not require Docker settings in the target project.")
 	fmt.Fprintln(&b, "Generate a standalone compose.yaml when no external networks are selected.")
 	fmt.Fprintln(&b, "Use external networks only when selected in the AGW workspace definition.")
+	fmt.Fprintln(&b, "When startup must be wrapped by another CLI, set `lifecycle.start` in `agw.yaml` to the exact command AGW should run from the workspace directory.")
 	fmt.Fprintln(&b, "If important information is missing, ask questions before generating files.")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Service: `%s`\n\n", def.Container.Service)

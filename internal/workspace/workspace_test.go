@@ -147,6 +147,37 @@ func TestLoadSaveDefinitionPreservesBaseEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadSaveDefinitionPreservesLifecycleStart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agw.yaml")
+	want := Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: Workspace{Dir: "workspaces/agw"},
+		Container: Container{Service: "dev", Workdir: "/workspace"},
+		Lifecycle: Lifecycle{
+			Start: "op run --env-file=.env.1password -- docker compose up -d",
+		},
+	}
+	if err := SaveDefinition(path, want); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotYAML := string(b)
+	if !strings.Contains(gotYAML, "lifecycle:") || !strings.Contains(gotYAML, "start: op run --env-file=.env.1password -- docker compose up -d") {
+		t.Fatalf("saved YAML missing lifecycle start:\n%s", gotYAML)
+	}
+	got, err := LoadDefinition(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Lifecycle.Start != want.Lifecycle.Start {
+		t.Fatalf("Lifecycle.Start = %q, want %q", got.Lifecycle.Start, want.Lifecycle.Start)
+	}
+}
+
 func TestDefinitionDefaultsIncludeGlobalBaseEnvironment(t *testing.T) {
 	def := Definition{}
 	if !def.IncludeGlobalBaseEnvironment() {

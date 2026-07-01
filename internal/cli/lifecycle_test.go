@@ -150,6 +150,46 @@ func TestLifecycleStartDaemonBuildsAndUpsWithoutAttachingWhenNotRunning(t *testi
 	}
 }
 
+func TestLifecycleStartRunsConfiguredStartCommandWhenNotRunning(t *testing.T) {
+	root := t.TempDir()
+	def := workspace.Definition{
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Lifecycle: workspace.Lifecycle{
+			Start: "op run --env-file=.env.1password -- docker compose up -d",
+		},
+	}
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+	mustWriteStartWorkspaceFiles(t, wsPath, "dev", "")
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.shellDir != wsPath {
+		t.Fatalf("shell dir = %q, want %q", runner.shellDir, wsPath)
+	}
+	if runner.shellCommand != "op run --env-file=.env.1password -- docker compose up -d" {
+		t.Fatalf("shell command = %q", runner.shellCommand)
+	}
+	if runner.buildDir != "" {
+		t.Fatalf("build dir = %q, want empty", runner.buildDir)
+	}
+	if runner.upDetachedDir != "" {
+		t.Fatalf("up detached dir = %q, want empty", runner.upDetachedDir)
+	}
+	if runner.attachDir != wsPath {
+		t.Fatalf("attach dir = %q, want %q", runner.attachDir, wsPath)
+	}
+}
+
 func TestLifecycleStartDaemonShortFlagSkipsAttachWhenAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
 	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
@@ -426,9 +466,9 @@ func TestLifecycleListShowsHeaderAndLifecycleState(t *testing.T) {
 	}
 	list := out.String()
 	for _, want := range []string{
-		"WORKSPACE\tSTATE\tSERVICE\tDIR",
-		"alpha\trunning\tdev\t" + storageA,
-		"beta\tnot-running\tapi\tstorage/beta",
+		"WORKSPACE  STATE        SERVICE  DIR",
+		"alpha      running      dev      " + storageA,
+		"beta       not-running  api      storage/beta",
 	} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("list output missing %q:\n%s", want, list)
@@ -579,6 +619,8 @@ type lifecycleFakeRunner struct {
 	stopDir       string
 	attachDir     string
 	attachService string
+	shellDir      string
+	shellCommand  string
 
 	networkExists       map[string]bool
 	serviceRunning      bool
@@ -625,6 +667,12 @@ func (r *lifecycleFakeRunner) Logs(dir string, service string) (string, error) {
 func (r *lifecycleFakeRunner) Attach(dir string, service string) error {
 	r.attachDir = dir
 	r.attachService = service
+	return nil
+}
+
+func (r *lifecycleFakeRunner) RunShell(dir string, command string) error {
+	r.shellDir = dir
+	r.shellCommand = command
 	return nil
 }
 

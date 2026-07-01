@@ -23,7 +23,7 @@ func TestRenderPromptContainsConstraintsAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sidecar", "Do not edit target project files", "go.mod", "acme_default"} {
+	for _, want := range []string{"sidecar", "Do not edit target project files", "go.mod", "acme_default", "lifecycle.start"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)
 		}

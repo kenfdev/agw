@@ -80,6 +80,15 @@ agw start <workspace>
 agw stop <workspace>
 ```
 
+If a workspace `agw.yaml` contains `lifecycle.start`, `agw start` runs that
+shell command from the workspace directory instead of the default
+`docker compose up -d` startup step. This is intended for wrappers such as:
+
+```yaml
+lifecycle:
+  start: op run --env-file=.env.1password -- docker compose up -d
+```
+
 For an existing workspace that should be refreshed from changed global
 base-environment guidance, dotfiles guidance, tool defaults, or generated
 workspace files:
@@ -105,6 +114,7 @@ When generating Docker/Compose files from `workspace prepare --agent-json`:
 - For Ubuntu 24.04 based sidecars, use the existing `ubuntu` user unless there is a clear project reason to create another user. Do not unconditionally create UID/GID 1000 users; `ubuntu:24.04` already provides `ubuntu:1000`.
 - If Tailscale is installed through the user's tools feature, Compose must also run the Tailscale entrypoint and provide runtime requirements: `TS_AUTHKEY` or `TS_AUTH_KEY`, `/dev/net/tun`, `NET_ADMIN`, `MKNOD`, and persistent `/var/lib/tailscale` state.
 - Prefer a workspace-local `.env.1password` for Tailscale auth key references when the user's base guidance uses 1Password. Do not write real auth keys into generated files.
+- If workspace startup needs secrets or another wrapper, set `lifecycle.start` in `agw.yaml` to the exact one-line command AGW should run from the workspace directory.
 - Tailscale SSH authorization is controlled by tailnet policy, not container `authorized_keys`. If SSH fails with "tailnet policy does not permit", inspect `tailscale status --json`, node tags, requested login user, and the tailnet `ssh` ACL/grants.
 - If Docker reports an entrypoint or binary missing after Compose changes, suspect a stale image or unrecreated container first. Keep the image name stable, then rebuild with `docker compose up -d --build --force-recreate` or remove the old image/container deliberately.
 - Dotfiles cloned during image build need BuildKit SSH forwarding. If build fails with an empty SSH agent socket, ask the user to ensure `SSH_AUTH_SOCK` is set and `ssh-add -l` works in their terminal.
