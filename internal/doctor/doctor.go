@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kenfdev/agw/internal/compose"
+	"github.com/kenfdev/agw/internal/mount"
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
@@ -98,7 +99,7 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	report.add("Dockerfile", dockerfileStatus, dockerfileDetail)
 
 	for _, project := range located.Definition.Projects {
-		if !hasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
+		if !mount.HasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
 			required := project.HostPath + ":" + project.ContainerPath
 			return fail(&report, "project mount", fmt.Sprintf("missing volume %s for project %s", required, project.Name), "run agw workspace apply", StateBroken)
 		}
@@ -238,16 +239,6 @@ func ensureInside(root, path string) error {
 		return fmt.Errorf("path escapes workspace directory: %s", path)
 	}
 	return nil
-}
-
-func hasVolumeMount(volumes []string, source, target string) bool {
-	for _, volume := range volumes {
-		parts := strings.Split(volume, ":")
-		if len(parts) >= 2 && parts[0] == source && parts[1] == target {
-			return true
-		}
-	}
-	return false
 }
 
 func selectedNetworks(def workspace.Definition) []workspace.NetworkAttachment {

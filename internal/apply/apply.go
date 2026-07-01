@@ -11,6 +11,7 @@ import (
 
 	"github.com/kenfdev/agw/internal/compose"
 	"github.com/kenfdev/agw/internal/docker"
+	"github.com/kenfdev/agw/internal/mount"
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
@@ -134,7 +135,7 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 	}
 
 	for _, project := range def.Projects {
-		if !hasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
+		if !mount.HasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
 			required := project.HostPath + ":" + project.ContainerPath
 			return fmt.Errorf("missing volume %s for project %s", required, project.Name)
 		}
@@ -273,16 +274,6 @@ func validateExternalNetwork(name string, runner docker.Runner) error {
 		return fmt.Errorf("external network %s not found", name)
 	}
 	return nil
-}
-
-func hasVolumeMount(volumes []string, source, target string) bool {
-	for _, volume := range volumes {
-		parts := strings.Split(volume, ":")
-		if len(parts) >= 2 && parts[0] == source && parts[1] == target {
-			return true
-		}
-	}
-	return false
 }
 
 func serviceHasNetworkAttachment(service compose.Service, key string, network compose.Network) bool {

@@ -216,6 +216,33 @@ func TestDiagnoseBrokenWhenMountMissing(t *testing.T) {
 	assertCheckDetail(t, report, "project mount", CheckFail, fmt.Sprintf("missing volume %s:/workspace for project agw", project))
 }
 
+func TestDiagnoseAcceptsHomeVariableInProjectMount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	project := filepath.Join(home, "ghq", "github.com", "kenfdev", "agw")
+	ws := filepath.Join(home, "agw-workspace")
+	mustMkdir(t, project)
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"),
+		"services:\n  dev:\n    build: .\n    volumes:\n      - ${HOME}/ghq/github.com/kenfdev/agw:/workspace:cached\n",
+	)
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project, ContainerPath: "/workspace"}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{running: false})
+
+	if report.State == StateBroken {
+		t.Fatalf("State = %q, want non-broken report: %#v", report.State, report.Checks)
+	}
+	assertCheck(t, report, "project mount", CheckPass)
+}
+
 func TestDiagnoseNeedsApplyWhenDockerfileMissing(t *testing.T) {
 	_, project, ws := validWorkspaceDirs(t)
 	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(

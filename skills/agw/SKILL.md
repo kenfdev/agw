@@ -112,6 +112,7 @@ Use `agw workspace network add <workspace> <network>` only after confirming that
 When generating Docker/Compose files from `workspace prepare --agent-json`:
 
 - Prefer the user's global base-environment guidance when present; do not silently omit mandatory personal tooling such as Tailscale or dotfiles.
+- Project bind mount sources in generated Compose may use absolute paths, `~/`, `$HOME`, or `${HOME}`; `workspace apply` and `doctor` expand and clean those sources when checking them against `projects.hostPath`.
 - For Ubuntu 24.04 based sidecars, use the existing `ubuntu` user unless there is a clear project reason to create another user. Do not unconditionally create UID/GID 1000 users; `ubuntu:24.04` already provides `ubuntu:1000`.
 - If Tailscale is installed through the user's tools feature, Compose must also run the Tailscale entrypoint and provide runtime requirements: `TS_AUTHKEY` or `TS_AUTH_KEY`, `/dev/net/tun`, `NET_ADMIN`, `MKNOD`, and persistent `/var/lib/tailscale` state.
 - Prefer a workspace-local `.env.1password` for Tailscale auth key references when the user's base guidance uses 1Password. Do not write real auth keys into generated files.

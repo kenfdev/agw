@@ -173,6 +173,21 @@ func TestApplyAcceptsVolumeOptions(t *testing.T) {
 	}
 }
 
+func TestApplyAcceptsHomeVariableInProjectMount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ws := t.TempDir()
+	gen := t.TempDir()
+	hostPath := filepath.Join(home, "ghq", "github.com", "kenfdev", "agw")
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - type: bind\n        source: ${HOME}/ghq/github.com/kenfdev/agw\n        target: /workspace\n")
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: hostPath, ContainerPath: "/workspace"}}}
+
+	if err := Apply(ws, def, gen, &fakeRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApplyRejectsMissingExternalNetwork(t *testing.T) {
 	ws := t.TempDir()
 	gen := t.TempDir()
