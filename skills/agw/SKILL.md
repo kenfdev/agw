@@ -27,7 +27,7 @@ my workspace". The agent uses JSON and agent-oriented CLI output internally.
 - Default to standalone sidecar mode. Target projects do not need Docker files, Compose files, devcontainer files, or external networks.
 - Treat detected project Docker files as hints only.
 - Add external networks only when the user explicitly wants the sidecar to reach already-running project services.
-- Do not start, stop, or modify target project services unless the user specifically asks.
+- Do not auto-detect or manage target project services unless the user specifically asks or `projects[].lifecycle.start` / `projects[].lifecycle.stop` is explicitly configured.
 - Do not edit files inside target repositories as part of workspace preparation. AGW owns its workspace files.
 - Generate workspace files in a temporary directory outside the AGW workspace directory before `workspace apply`; `apply` rejects generated directories that overlap the workspace.
 - Do not change Compose image names as a workaround for stale images. Diagnose stale containers/images, then rebuild or remove the old image intentionally.
@@ -81,6 +81,9 @@ agw start <workspace>
 agw stop <workspace>
 ```
 
+In `agw tui`, press `t` to start the selected workspace in daemon mode using
+the same readiness checks and `lifecycle.start` handling as `agw start -d`.
+
 If a workspace `agw.yaml` contains `lifecycle.start`, `agw start` runs that
 shell command from the workspace directory instead of the default
 `docker compose up -d` startup step. This is intended for wrappers such as:
@@ -88,6 +91,25 @@ shell command from the workspace directory instead of the default
 ```yaml
 lifecycle:
   start: op run --env-file=.env.1password -- docker compose up -d
+```
+
+If projects have explicit lifecycle commands, `agw start` runs each
+`projects[].lifecycle.start` from that project's `hostPath` in project order
+after readiness checks and before starting or attaching to the AGW sidecar.
+`agw start` fails immediately if a project start command fails. `agw stop`
+stops the AGW sidecar first, then runs each `projects[].lifecycle.stop` from
+the project `hostPath` in reverse project order. Project stop failures do not
+prevent later project stop commands from running, but `agw stop` returns an
+error if any configured project stop command fails.
+
+```yaml
+projects:
+  - name: api
+    hostPath: /path/to/api
+    containerPath: /workspace/api
+    lifecycle:
+      start: docker compose up -d
+      stop: docker compose down
 ```
 
 For an existing workspace that should be refreshed from changed global
@@ -117,6 +139,7 @@ When generating Docker/Compose files from `workspace prepare --agent-json`:
 - If Tailscale is installed through the user's tools feature, Compose must also run the Tailscale entrypoint and provide runtime requirements: `TS_AUTHKEY` or `TS_AUTH_KEY`, `/dev/net/tun`, `NET_ADMIN`, `MKNOD`, and persistent `/var/lib/tailscale` state.
 - Prefer a workspace-local `.env.1password` for Tailscale auth key references when the user's base guidance uses 1Password. Do not write real auth keys into generated files.
 - If workspace startup needs secrets or another wrapper, set `lifecycle.start` in `agw.yaml` to the exact one-line command AGW should run from the workspace directory.
+- If project-owned Docker services should start or stop with AGW, set `projects[].lifecycle.start` and `projects[].lifecycle.stop` to exact one-line commands AGW should run from each project host path. Do not add these commands based only on detected Docker files without user intent.
 - Tailscale SSH authorization is controlled by tailnet policy, not container `authorized_keys`. If SSH fails with "tailnet policy does not permit", inspect `tailscale status --json`, node tags, requested login user, and the tailnet `ssh` ACL/grants.
 - If Docker reports an entrypoint or binary missing after Compose changes, suspect a stale image or unrecreated container first. Keep the image name stable, then rebuild with `docker compose up -d --build --force-recreate` or remove the old image/container deliberately.
 - Dotfiles cloned during image build need BuildKit SSH forwarding. If build fails with an empty SSH agent socket, ask the user to ensure `SSH_AUTH_SOCK` is set and `ssh-add -l` works in their terminal.
@@ -136,12 +159,12 @@ Map user intent to CLI use without teaching users to run agent-oriented flags:
 - "Diagnose why this workspace will not start" -> run `doctor --json`, follow
   the reported next action, and use command-specific help before unfamiliar
   operations.
-- "Start my workspace" -> diagnose first when state is unknown, then start only
-  the AGW workspace sidecar.
+- "Start my workspace" -> diagnose first when state is unknown, then run configured
+  project lifecycle starts before starting or attaching to the AGW workspace sidecar.
 
 ## Error Handling
 
 - If `doctor --json` reports `needs-prepare`, render the agent packet with `agw workspace prepare <workspace> --agent-json` and produce workspace files from its `prompt`.
 - If `doctor` reports `needs-apply`, apply generated workspace files from the chosen generated directory.
-- If `doctor` reports a missing external network, ask the user to start the base project services or remove the network selection. Do not manage those services implicitly.
+- If `doctor` reports a missing external network, ask the user to start the base project services, configure explicit project lifecycle commands, or remove the network selection. Do not manage those services implicitly.
 - If the installed `agw` binary disagrees with this repository, prefer the repository command during development and call out the difference.

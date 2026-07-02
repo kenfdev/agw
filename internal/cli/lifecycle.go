@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -49,44 +50,8 @@ func newLifecycleStartCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			service := strings.TrimSpace(located.Definition.Container.Service)
-			if service == "" {
-				return fmt.Errorf("workspace %q has no service configured", located.Definition.ID)
-			}
-			dir := filepath.Dir(located.Path)
 			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
-			report := doctor.Diagnose(located, runner)
-			upOptions := docker.UpOptions{Build: build, ForceRecreate: forceRecreate}
-			switch report.State {
-			case doctor.StateRunning:
-				if upOptions.Build || upOptions.ForceRecreate {
-					if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
-						return err
-					}
-				}
-				if daemon {
-					return nil
-				}
-				return runner.Attach(dir, service)
-			case doctor.StateNotRunning:
-				if strings.TrimSpace(located.Definition.Lifecycle.Start) == "" && !upOptions.Build {
-					if err := runner.Build(dir); err != nil {
-						return err
-					}
-				}
-				if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
-					return err
-				}
-				if daemon {
-					return nil
-				}
-				return runner.Attach(dir, service)
-			default:
-				if err := writeDoctorReport(cmd.OutOrStdout(), report); err != nil {
-					return err
-				}
-				return fmt.Errorf("workspace %s is not ready to start: %s", report.WorkspaceID, report.State)
-			}
+			return startLocatedWorkspace(cmd.OutOrStdout(), located, runner, daemon, docker.UpOptions{Build: build, ForceRecreate: forceRecreate})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -96,11 +61,84 @@ func newLifecycleStartCommand() *cobra.Command {
 	return cmd
 }
 
+func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, runner lifecycleRunner, daemon bool, upOptions docker.UpOptions) error {
+	service := strings.TrimSpace(located.Definition.Container.Service)
+	if service == "" {
+		return fmt.Errorf("workspace %q has no service configured", located.Definition.ID)
+	}
+	dir := filepath.Dir(located.Path)
+	report := doctor.Diagnose(located, runner)
+	switch report.State {
+	case doctor.StateRunning:
+		if err := runProjectLifecycleStartCommands(runner, located.Definition); err != nil {
+			return err
+		}
+		if upOptions.Build || upOptions.ForceRecreate {
+			if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
+				return err
+			}
+		}
+		if daemon {
+			return nil
+		}
+		return runner.Attach(dir, service)
+	case doctor.StateNotRunning:
+		if err := runProjectLifecycleStartCommands(runner, located.Definition); err != nil {
+			return err
+		}
+		if strings.TrimSpace(located.Definition.Lifecycle.Start) == "" && !upOptions.Build {
+			if err := runner.Build(dir); err != nil {
+				return err
+			}
+		}
+		if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
+			return err
+		}
+		if daemon {
+			return nil
+		}
+		return runner.Attach(dir, service)
+	default:
+		if err := writeDoctorReport(out, report); err != nil {
+			return err
+		}
+		return fmt.Errorf("workspace %s is not ready to start: %s", report.WorkspaceID, report.State)
+	}
+}
+
 func runLifecycleStartCommand(runner lifecycleRunner, def workspace.Definition, dir string, opts docker.UpOptions) error {
 	if command := strings.TrimSpace(def.Lifecycle.Start); command != "" {
 		return runner.RunShell(dir, command)
 	}
 	return runner.UpDetachedWithOptions(dir, opts)
+}
+
+func runProjectLifecycleStartCommands(runner lifecycleRunner, def workspace.Definition) error {
+	for _, project := range def.Projects {
+		command := strings.TrimSpace(project.Lifecycle.Start)
+		if command == "" {
+			continue
+		}
+		if err := runner.RunShell(project.HostPath, command); err != nil {
+			return fmt.Errorf("start project %s (%s): %w", project.Name, project.HostPath, err)
+		}
+	}
+	return nil
+}
+
+func runProjectLifecycleStopCommands(runner lifecycleRunner, def workspace.Definition) error {
+	var errs []error
+	for i := len(def.Projects) - 1; i >= 0; i-- {
+		project := def.Projects[i]
+		command := strings.TrimSpace(project.Lifecycle.Stop)
+		if command == "" {
+			continue
+		}
+		if err := runner.RunShell(project.HostPath, command); err != nil {
+			errs = append(errs, fmt.Errorf("stop project %s (%s): %w", project.Name, project.HostPath, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func newLifecycleStopCommand() *cobra.Command {
@@ -116,7 +154,10 @@ func newLifecycleStopCommand() *cobra.Command {
 				return err
 			}
 			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
-			return runner.Stop(filepath.Dir(located.Path))
+			if err := runner.Stop(filepath.Dir(located.Path)); err != nil {
+				return err
+			}
+			return runProjectLifecycleStopCommands(runner, located.Definition)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")

@@ -40,6 +40,7 @@ type BaseEnvironment struct {
 
 type Lifecycle struct {
 	Start string `yaml:"start,omitempty"`
+	Stop  string `yaml:"stop,omitempty"`
 }
 
 func (d Definition) IncludeGlobalBaseEnvironment() bool {
@@ -47,11 +48,12 @@ func (d Definition) IncludeGlobalBaseEnvironment() bool {
 }
 
 type Project struct {
-	Name          string `yaml:"name"`
-	HostPath      string `yaml:"hostPath"`
-	ContainerPath string `yaml:"containerPath"`
-	Path          string `yaml:"path,omitempty"`
-	MountPath     string `yaml:"mountPath,omitempty"`
+	Name          string    `yaml:"name"`
+	HostPath      string    `yaml:"hostPath"`
+	ContainerPath string    `yaml:"containerPath"`
+	Path          string    `yaml:"path,omitempty"`
+	MountPath     string    `yaml:"mountPath,omitempty"`
+	Lifecycle     Lifecycle `yaml:"lifecycle,omitempty"`
 }
 
 type Networks struct {

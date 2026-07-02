@@ -178,6 +178,57 @@ func TestLoadSaveDefinitionPreservesLifecycleStart(t *testing.T) {
 	}
 }
 
+func TestLoadSaveDefinitionPreservesProjectLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agw.yaml")
+	want := Definition{
+		ID:        "agw",
+		Name:      "AGW",
+		Workspace: Workspace{Dir: "workspaces/agw"},
+		Container: Container{Service: "dev", Workdir: "/workspace"},
+		Projects: []Project{
+			{
+				Name:          "api",
+				HostPath:      "/src/api",
+				ContainerPath: "/workspace/api",
+				Lifecycle: Lifecycle{
+					Start: "docker compose up -d",
+					Stop:  "docker compose down",
+				},
+			},
+		},
+	}
+	if err := SaveDefinition(path, want); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotYAML := string(b)
+	for _, want := range []string{
+		"lifecycle:",
+		"start: docker compose up -d",
+		"stop: docker compose down",
+	} {
+		if !strings.Contains(gotYAML, want) {
+			t.Fatalf("saved YAML missing %q:\n%s", want, gotYAML)
+		}
+	}
+	got, err := LoadDefinition(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Projects) != 1 {
+		t.Fatalf("Projects count = %d, want 1", len(got.Projects))
+	}
+	if got.Projects[0].Lifecycle.Start != want.Projects[0].Lifecycle.Start {
+		t.Fatalf("Project Lifecycle.Start = %q, want %q", got.Projects[0].Lifecycle.Start, want.Projects[0].Lifecycle.Start)
+	}
+	if got.Projects[0].Lifecycle.Stop != want.Projects[0].Lifecycle.Stop {
+		t.Fatalf("Project Lifecycle.Stop = %q, want %q", got.Projects[0].Lifecycle.Stop, want.Projects[0].Lifecycle.Stop)
+	}
+}
+
 func TestDefinitionDefaultsIncludeGlobalBaseEnvironment(t *testing.T) {
 	def := Definition{}
 	if !def.IncludeGlobalBaseEnvironment() {

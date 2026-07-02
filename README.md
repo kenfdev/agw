@@ -161,6 +161,24 @@ lifecycle:
   start: op run --env-file=.env.1password -- docker compose up -d
 ```
 
+If AGW should start or stop project-owned services around the sidecar
+lifecycle, set project lifecycle commands. `agw start` runs each
+`projects[].lifecycle.start` from that project's `hostPath` in project order
+after readiness checks and before starting or attaching to the AGW sidecar.
+`agw stop` stops the AGW sidecar first, then runs each
+`projects[].lifecycle.stop` from the project `hostPath` in reverse project
+order:
+
+```yaml
+projects:
+  - name: api
+    hostPath: /path/to/api
+    containerPath: /workspace/api
+    lifecycle:
+      start: docker compose up -d
+      stop: docker compose down
+```
+
 By default, AGW stores user configuration in the OS user config directory
 under `agw/config.yaml`. Set `AGW_CONFIG` to use a specific config file:
 
@@ -249,3 +267,5 @@ The state-first TUI shows the same model:
 ```bash
 agw tui --config "$AGW_TEST_CONFIG"
 ```
+
+Inside the TUI, press `t` to start the selected workspace without attaching.

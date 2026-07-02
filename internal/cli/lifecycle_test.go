@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -190,6 +191,115 @@ func TestLifecycleStartRunsConfiguredStartCommandWhenNotRunning(t *testing.T) {
 	}
 }
 
+func TestLifecycleStartRunsProjectStartCommandsInProjectOrderBeforeWorkspaceStart(t *testing.T) {
+	root := t.TempDir()
+	apiPath := filepath.Join(root, "src", "api")
+	docsPath := filepath.Join(root, "src", "docs")
+	webPath := filepath.Join(root, "src", "web")
+	mustMkdirAll(t, apiPath)
+	mustMkdirAll(t, docsPath)
+	mustMkdirAll(t, webPath)
+	def := workspace.Definition{
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects: []workspace.Project{
+			{
+				Name:          "api",
+				HostPath:      apiPath,
+				ContainerPath: "/workspace/api",
+				Lifecycle:     workspace.Lifecycle{Start: "docker compose up -d"},
+			},
+			{
+				Name:          "docs",
+				HostPath:      docsPath,
+				ContainerPath: "/workspace/docs",
+			},
+			{
+				Name:          "web",
+				HostPath:      webPath,
+				ContainerPath: "/workspace/web",
+				Lifecycle:     workspace.Lifecycle{Start: "docker compose up -d web"},
+			},
+		},
+	}
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+	mustWriteStartWorkspaceFilesWithProjectMounts(t, wsPath, "dev", def.Projects)
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	wantCalls := []string{
+		"shell:" + apiPath + ":docker compose up -d",
+		"shell:" + webPath + ":docker compose up -d web",
+		"build:" + wsPath,
+		"up-detached:" + wsPath,
+		"attach:" + wsPath + ":dev",
+	}
+	if strings.Join(runner.calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(runner.calls, "\n"), strings.Join(wantCalls, "\n"))
+	}
+}
+
+func TestLifecycleStartFailsBeforeWorkspaceStartWhenProjectStartFails(t *testing.T) {
+	root := t.TempDir()
+	apiPath := filepath.Join(root, "src", "api")
+	webPath := filepath.Join(root, "src", "web")
+	mustMkdirAll(t, apiPath)
+	mustMkdirAll(t, webPath)
+	def := workspace.Definition{
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects: []workspace.Project{
+			{
+				Name:          "api",
+				HostPath:      apiPath,
+				ContainerPath: "/workspace/api",
+				Lifecycle:     workspace.Lifecycle{Start: "docker compose up -d"},
+			},
+			{
+				Name:          "web",
+				HostPath:      webPath,
+				ContainerPath: "/workspace/web",
+				Lifecycle:     workspace.Lifecycle{Start: "docker compose up -d web"},
+			},
+		},
+	}
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+	mustWriteStartWorkspaceFilesWithProjectMounts(t, wsPath, "dev", def.Projects)
+
+	runner := &lifecycleFakeRunner{
+		shellErrors: map[string]error{
+			apiPath + "\x00" + "docker compose up -d": errors.New("compose failed"),
+		},
+	}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected start to fail")
+	}
+	if !strings.Contains(err.Error(), "start project api") {
+		t.Fatalf("error = %q, want project context", err)
+	}
+	wantCalls := []string{"shell:" + apiPath + ":docker compose up -d"}
+	if strings.Join(runner.calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(runner.calls, "\n"), strings.Join(wantCalls, "\n"))
+	}
+}
+
 func TestLifecycleStartDaemonShortFlagSkipsAttachWhenAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
 	cfgPath, wsPath := mustWriteLifecycleWorkspace(t, root, "agw", "dev")
@@ -367,6 +477,112 @@ func TestLifecycleStopUsesRunnerWithWorkspaceDir(t *testing.T) {
 	}
 	if runner.downDir != "" {
 		t.Fatalf("down dir = %q, want empty", runner.downDir)
+	}
+}
+
+func TestLifecycleStopRunsProjectStopCommandsInReverseOrderAfterWorkspaceStop(t *testing.T) {
+	root := t.TempDir()
+	apiPath := filepath.Join(root, "src", "api")
+	webPath := filepath.Join(root, "src", "web")
+	def := workspace.Definition{
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects: []workspace.Project{
+			{
+				Name:          "api",
+				HostPath:      apiPath,
+				ContainerPath: "/workspace/api",
+				Lifecycle:     workspace.Lifecycle{Stop: "docker compose down"},
+			},
+			{
+				Name:          "docs",
+				HostPath:      filepath.Join(root, "src", "docs"),
+				ContainerPath: "/workspace/docs",
+			},
+			{
+				Name:          "web",
+				HostPath:      webPath,
+				ContainerPath: "/workspace/web",
+				Lifecycle:     workspace.Lifecycle{Stop: "docker compose down web"},
+			},
+		},
+	}
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+
+	runner := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"stop", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	wantCalls := []string{
+		"stop:" + wsPath,
+		"shell:" + webPath + ":docker compose down web",
+		"shell:" + apiPath + ":docker compose down",
+	}
+	if strings.Join(runner.calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(runner.calls, "\n"), strings.Join(wantCalls, "\n"))
+	}
+}
+
+func TestLifecycleStopContinuesProjectStopCommandsAndReturnsError(t *testing.T) {
+	root := t.TempDir()
+	apiPath := filepath.Join(root, "src", "api")
+	webPath := filepath.Join(root, "src", "web")
+	def := workspace.Definition{
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects: []workspace.Project{
+			{
+				Name:          "api",
+				HostPath:      apiPath,
+				ContainerPath: "/workspace/api",
+				Lifecycle:     workspace.Lifecycle{Stop: "docker compose down"},
+			},
+			{
+				Name:          "web",
+				HostPath:      webPath,
+				ContainerPath: "/workspace/web",
+				Lifecycle:     workspace.Lifecycle{Stop: "docker compose down web"},
+			},
+		},
+	}
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+
+	runner := &lifecycleFakeRunner{
+		shellErrors: map[string]error{
+			webPath + "\x00" + "docker compose down web": errors.New("web failed"),
+			apiPath + "\x00" + "docker compose down":     errors.New("api failed"),
+		},
+	}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"stop", "agw", "--config", cfgPath})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected stop to fail")
+	}
+	for _, want := range []string{"stop project web", "stop project api"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+	wantCalls := []string{
+		"stop:" + wsPath,
+		"shell:" + webPath + ":docker compose down web",
+		"shell:" + apiPath + ":docker compose down",
+	}
+	if strings.Join(runner.calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(runner.calls, "\n"), strings.Join(wantCalls, "\n"))
 	}
 }
 
@@ -563,6 +779,20 @@ func mustWriteStartWorkspaceFiles(t *testing.T, wsPath, service, externalNetwork
 	}
 }
 
+func mustWriteStartWorkspaceFilesWithProjectMounts(t *testing.T, wsPath, service string, projects []workspace.Project) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(wsPath, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compose := "services:\n  " + service + ":\n    build: .\n    volumes:\n"
+	for _, project := range projects {
+		compose += "      - " + project.HostPath + ":" + project.ContainerPath + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(wsPath, "compose.yaml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mustWriteLifecycleDefinition(t *testing.T, root, id string, def workspace.Definition) (string, string) {
 	t.Helper()
 	defPath, wsPath := createLifecycleDir(t, root, id)
@@ -607,7 +837,15 @@ func mustWriteLifecycleDefinitionFile(t *testing.T, path string, def workspace.D
 	}
 }
 
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type lifecycleFakeRunner struct {
+	calls         []string
 	buildDir      string
 	upDir         string
 	upDetachedDir string
@@ -618,6 +856,7 @@ type lifecycleFakeRunner struct {
 	attachService string
 	shellDir      string
 	shellCommand  string
+	shellErrors   map[string]error
 
 	networkExists       map[string]bool
 	serviceRunning      bool
@@ -625,32 +864,38 @@ type lifecycleFakeRunner struct {
 }
 
 func (r *lifecycleFakeRunner) Build(dir string) error {
+	r.calls = append(r.calls, "build:"+dir)
 	r.buildDir = dir
 	return nil
 }
 
 func (r *lifecycleFakeRunner) Up(dir string) error {
+	r.calls = append(r.calls, "up:"+dir)
 	r.upDir = dir
 	return nil
 }
 
 func (r *lifecycleFakeRunner) UpDetached(dir string) error {
+	r.calls = append(r.calls, "up-detached:"+dir)
 	r.upDetachedDir = dir
 	return nil
 }
 
 func (r *lifecycleFakeRunner) UpDetachedWithOptions(dir string, opts docker.UpOptions) error {
+	r.calls = append(r.calls, "up-detached:"+dir)
 	r.upDetachedDir = dir
 	r.upOptions = opts
 	return nil
 }
 
 func (r *lifecycleFakeRunner) Down(dir string) error {
+	r.calls = append(r.calls, "down:"+dir)
 	r.downDir = dir
 	return nil
 }
 
 func (r *lifecycleFakeRunner) Stop(dir string) error {
+	r.calls = append(r.calls, "stop:"+dir)
 	r.stopDir = dir
 	return nil
 }
@@ -662,14 +907,21 @@ func (r *lifecycleFakeRunner) Logs(dir string, service string) (string, error) {
 }
 
 func (r *lifecycleFakeRunner) Attach(dir string, service string) error {
+	r.calls = append(r.calls, "attach:"+dir+":"+service)
 	r.attachDir = dir
 	r.attachService = service
 	return nil
 }
 
 func (r *lifecycleFakeRunner) RunShell(dir string, command string) error {
+	r.calls = append(r.calls, "shell:"+dir+":"+command)
 	r.shellDir = dir
 	r.shellCommand = command
+	if r.shellErrors != nil {
+		if err := r.shellErrors[dir+"\x00"+command]; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
