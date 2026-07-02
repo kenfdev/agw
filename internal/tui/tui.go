@@ -91,6 +91,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == "confirm-down" {
 			return m.updateConfirmDown(msg)
 		}
+		if m.mode == "confirm-build" {
+			return m.updateConfirmBuild(msg)
+		}
 		if m.mode == "project-selector" {
 			return m.updateProjectSelector(msg)
 		}
@@ -126,9 +129,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.actions.Start(item)
 			})
 		case "b":
-			m = m.runAction("build", func(item workspace.LocatedDefinition) (string, error) {
-				return m.actions.Build(item)
-			})
+			m = m.confirmBuild()
 		case "u":
 			m = m.runAction("up", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Up(item)
@@ -184,6 +185,9 @@ func (m Model) View() string {
 	if m.mode == "confirm-down" {
 		return m.confirmDownView()
 	}
+	if m.mode == "confirm-build" {
+		return m.confirmBuildView()
+	}
 	if m.hasWindowSize() {
 		return m.fullscreenView()
 	}
@@ -236,7 +240,7 @@ func (m Model) View() string {
 	} else {
 		lines = append(lines, "  idle")
 	}
-	lines = append(lines, "", "Keys  ↑/↓/j/k move  enter/tab details  t start  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
+	lines = append(lines, "", "Keys  ↑/↓/j/k move  enter/tab details  t start  b build  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
 	return strings.Join(lines, "\n")
 }
 
@@ -268,7 +272,7 @@ func (m Model) fullscreenView() string {
 	lines = append(lines, borderedBlock(m.topBar(), m.workspaceLines(), m.width, listHeight)...)
 	lines = append(lines, borderedBlock("Details", m.detailsLines(), m.width, detailsHeight)...)
 	lines = append(lines, borderedBlock("Logs", m.logLines(), m.width, logHeight)...)
-	lines = append(lines, borderedBlock("Keys", []string{"↑/↓/j/k move  enter/tab details  t start  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
+	lines = append(lines, borderedBlock("Keys", []string{"↑/↓/j/k move  enter/tab details  t start  b build  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
 	return strings.Join(fitLineCount(lines, m.height, m.width), "\n")
 }
 
@@ -447,6 +451,23 @@ func (m Model) updateConfirmDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateConfirmBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		m.mode = ""
+		m = m.runAction("build", func(item workspace.LocatedDefinition) (string, error) {
+			return m.actions.Build(item)
+		})
+	case "n", "esc":
+		m.mode = ""
+		m.status = "build canceled"
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m Model) updateProjectSelector(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -489,6 +510,15 @@ func (m Model) confirmDown() Model {
 	return m
 }
 
+func (m Model) confirmBuild() Model {
+	if _, ok := m.selectedWorkspace(); !ok {
+		m.status = "build failed: no workspace selected"
+		return m
+	}
+	m.mode = "confirm-build"
+	return m
+}
+
 func (m Model) confirmDownView() string {
 	item, ok := m.selectedWorkspace()
 	if !ok {
@@ -500,6 +530,33 @@ func (m Model) confirmDownView() string {
 	base.mode = ""
 	message := []string{
 		fmt.Sprintf("Stop workspace %s?", item.Definition.ID),
+		"",
+		"y confirm   n cancel   esc cancel",
+	}
+	modalWidth := 48
+	if m.hasWindowSize() {
+		if modalWidth > m.width-4 {
+			modalWidth = m.width - 4
+		}
+		if modalWidth < 24 {
+			modalWidth = 24
+		}
+		return overlayModal(base.View(), borderedBlock("Confirm", message, modalWidth, 5), m.width, m.height)
+	}
+	return base.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 5), "\n")
+}
+
+func (m Model) confirmBuildView() string {
+	item, ok := m.selectedWorkspace()
+	if !ok {
+		base := m
+		base.mode = ""
+		return base.View()
+	}
+	base := m
+	base.mode = ""
+	message := []string{
+		fmt.Sprintf("Build workspace %s?", item.Definition.ID),
 		"",
 		"y confirm   n cancel   esc cancel",
 	}
@@ -924,7 +981,7 @@ func (m Model) helpView() string {
 		"f Dockerfile",
 		"r refresh",
 		"t start",
-		"b build",
+		"b build (confirm)",
 		"u up",
 		"ctrl+d stop/down",
 		"/ filter",

@@ -83,6 +83,8 @@ agw stop <workspace>
 
 In `agw`, press `t` to start the selected workspace in daemon mode using
 the same readiness checks and `lifecycle.start` handling as `agw start -d`.
+Press `b` to open a confirmation prompt before building the selected workspace;
+press `y` in that prompt to run the build.
 
 If a workspace `agw.yaml` contains `lifecycle.start`, `agw start` runs that
 shell command from the workspace directory instead of the default

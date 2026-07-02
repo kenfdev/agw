@@ -73,7 +73,7 @@ func TestModelReportOnlyRefreshFailsWithoutCallingActions(t *testing.T) {
 	}
 }
 
-func TestModelInvokesActionForSelectedWorkspace(t *testing.T) {
+func TestModelConfirmsBuildActionForSelectedWorkspace(t *testing.T) {
 	items := []workspace.LocatedDefinition{
 		{Definition: workspace.Definition{ID: "first"}},
 		{Definition: workspace.Definition{ID: "second"}},
@@ -84,6 +84,15 @@ func TestModelInvokesActionForSelectedWorkspace(t *testing.T) {
 	model = updated.(Model)
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+	if actions.buildWorkspace != "" {
+		t.Fatalf("build ran before confirmation for workspace %q", actions.buildWorkspace)
+	}
+	if !strings.Contains(model.View(), "Build workspace second?") {
+		t.Fatalf("view missing build confirmation:\n%s", model.View())
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	model = updated.(Model)
 
 	if actions.buildWorkspace != "second" {
@@ -127,6 +136,8 @@ func TestModelMovesSelectionWithVimKeys(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
 	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	model = updated.(Model)
 
 	if actions.buildWorkspace != "second" {
 		t.Fatalf("build workspace after j = %q", actions.buildWorkspace)
@@ -136,6 +147,8 @@ func TestModelMovesSelectionWithVimKeys(t *testing.T) {
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	model = updated.(Model)
 
 	if actions.buildWorkspace != "first" {
@@ -363,6 +376,23 @@ func TestModelConfirmsDownAction(t *testing.T) {
 	model = updated.(Model)
 	if !strings.Contains(model.View(), "down ok") {
 		t.Fatalf("view missing down result:\n%s", model.View())
+	}
+}
+
+func TestModelCancelsBuildConfirmation(t *testing.T) {
+	actions := &fakeActions{}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	model = updated.(Model)
+
+	if actions.buildWorkspace != "" {
+		t.Fatalf("build ran despite cancellation for workspace %q", actions.buildWorkspace)
+	}
+	if !strings.Contains(model.View(), "build canceled") {
+		t.Fatalf("view missing build cancellation:\n%s", model.View())
 	}
 }
 
