@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/prepare"
 	"github.com/kenfdev/agw/internal/scanner"
@@ -101,6 +102,14 @@ func (a *tuiActions) Status(item workspace.LocatedDefinition) (string, error) {
 
 func (a *tuiActions) Build(item workspace.LocatedDefinition) (string, error) {
 	return "", newLifecycleRunner(a.out, a.err).Build(filepath.Dir(item.Path))
+}
+
+func (a *tuiActions) Start(item workspace.LocatedDefinition) (string, error) {
+	runner := newLifecycleRunner(a.out, a.err)
+	if err := startLocatedWorkspace(a.out, item, runner, true, docker.UpOptions{}); err != nil {
+		return "", err
+	}
+	return item.Definition.ID, nil
 }
 
 func (a *tuiActions) Up(item workspace.LocatedDefinition) (string, error) {

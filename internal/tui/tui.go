@@ -32,6 +32,7 @@ type Model struct {
 
 type Actions interface {
 	Status(workspace.LocatedDefinition) (string, error)
+	Start(workspace.LocatedDefinition) (string, error)
 	Build(workspace.LocatedDefinition) (string, error)
 	Up(workspace.LocatedDefinition) (string, error)
 	Down(workspace.LocatedDefinition) (string, error)
@@ -120,6 +121,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = "details"
 		case "s":
 			m = m.requestShellAndQuit()
+		case "t":
+			m = m.runAction("start", func(item workspace.LocatedDefinition) (string, error) {
+				return m.actions.Start(item)
+			})
 		case "b":
 			m = m.runAction("build", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Build(item)
@@ -231,7 +236,7 @@ func (m Model) View() string {
 	} else {
 		lines = append(lines, "  idle")
 	}
-	lines = append(lines, "", "Keys  ↑/↓/j/k move  enter/tab details  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
+	lines = append(lines, "", "Keys  ↑/↓/j/k move  enter/tab details  t start  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
 	return strings.Join(lines, "\n")
 }
 
@@ -263,7 +268,7 @@ func (m Model) fullscreenView() string {
 	lines = append(lines, borderedBlock(m.topBar(), m.workspaceLines(), m.width, listHeight)...)
 	lines = append(lines, borderedBlock("Details", m.detailsLines(), m.width, detailsHeight)...)
 	lines = append(lines, borderedBlock("Logs", m.logLines(), m.width, logHeight)...)
-	lines = append(lines, borderedBlock("Keys", []string{"↑/↓/j/k move  enter/tab details  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
+	lines = append(lines, borderedBlock("Keys", []string{"↑/↓/j/k move  enter/tab details  t start  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
 	return strings.Join(fitLineCount(lines, m.height, m.width), "\n")
 }
 
@@ -918,6 +923,7 @@ func (m Model) helpView() string {
 		"c compose",
 		"f Dockerfile",
 		"r refresh",
+		"t start",
 		"b build",
 		"u up",
 		"ctrl+d stop/down",
@@ -942,6 +948,7 @@ func (m Model) commandsView() string {
 		"compose",
 		"Dockerfile",
 		"refresh",
+		"start",
 		"build",
 		"up",
 		"ctrl+d stop/down",

@@ -94,6 +94,27 @@ func TestModelInvokesActionForSelectedWorkspace(t *testing.T) {
 	}
 }
 
+func TestModelStartsSelectedWorkspace(t *testing.T) {
+	items := []workspace.LocatedDefinition{
+		{Definition: workspace.Definition{ID: "first"}},
+		{Definition: workspace.Definition{ID: "second"}},
+	}
+	actions := &fakeActions{startResult: "started second"}
+	model := NewModelWithActions(items, actions)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	model = updated.(Model)
+
+	if actions.startWorkspace != "second" {
+		t.Fatalf("start workspace = %q", actions.startWorkspace)
+	}
+	if !strings.Contains(model.View(), "start ok: started second") {
+		t.Fatalf("view missing start status:\n%s", model.View())
+	}
+}
+
 func TestModelMovesSelectionWithVimKeys(t *testing.T) {
 	items := []workspace.LocatedDefinition{
 		{Definition: workspace.Definition{ID: "first"}},
@@ -205,6 +226,8 @@ func TestModelShowsActionResultMessage(t *testing.T) {
 type fakeActions struct {
 	buildWorkspace string
 	buildResult    string
+	startWorkspace string
+	startResult    string
 	prepareResult  string
 	logsResult     string
 	refreshReport  doctor.Report
@@ -223,6 +246,10 @@ func (a *fakeActions) Status(workspace.LocatedDefinition) (string, error) {
 func (a *fakeActions) Build(item workspace.LocatedDefinition) (string, error) {
 	a.buildWorkspace = item.Definition.ID
 	return a.buildResult, nil
+}
+func (a *fakeActions) Start(item workspace.LocatedDefinition) (string, error) {
+	a.startWorkspace = item.Definition.ID
+	return a.startResult, nil
 }
 func (a *fakeActions) Up(workspace.LocatedDefinition) (string, error)     { return "", nil }
 func (a *fakeActions) Down(workspace.LocatedDefinition) (string, error)   { return "", nil }
