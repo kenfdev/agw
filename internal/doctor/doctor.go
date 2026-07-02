@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/compose"
 	"github.com/kenfdev/agw/internal/mount"
 	"github.com/kenfdev/agw/internal/workspace"
@@ -41,10 +42,11 @@ type Check struct {
 }
 
 type Report struct {
-	WorkspaceID string  `json:"workspaceId"`
-	State       State   `json:"state"`
-	Checks      []Check `json:"checks"`
-	NextAction  string  `json:"nextAction"`
+	WorkspaceID     string       `json:"workspaceId"`
+	State           State        `json:"state"`
+	Checks          []Check      `json:"checks"`
+	NextAction      string       `json:"nextAction"`
+	BaseEnvironment *base.Status `json:"baseEnvironment,omitempty"`
 }
 
 type Runner interface {

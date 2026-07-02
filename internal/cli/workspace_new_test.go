@@ -137,7 +137,7 @@ func TestWorkspaceNewFromProjectUsesConfigRootAndStandaloneDefaults(t *testing.T
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -185,7 +185,7 @@ func TestWorkspaceNewFromProjectUsesPathMappingForStorage(t *testing.T) {
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
 	if err := config.Save(cfgPath, config.Config{
-		WorkspaceRoots: []string{root},
+		WorkspaceRoot: root,
 		PathMappings:   []config.PathMapping{{SourceRoot: sourceRoot, WorkspacePrefix: "workspaces"}},
 	}); err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestWorkspaceNewFromProjectPrintsContainerSetupHints(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 

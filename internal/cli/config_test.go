@@ -20,8 +20,8 @@ func TestNewConfigCommandInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if len(loaded.WorkspaceRoots) != 1 || loaded.WorkspaceRoots[0] != "/tmp/agw" {
-		t.Fatalf("WorkspaceRoots = %#v", loaded.WorkspaceRoots)
+	if loaded.WorkspaceRoot != "/tmp/agw" {
+		t.Fatalf("WorkspaceRoot = %q", loaded.WorkspaceRoot)
 	}
 }
 
@@ -39,7 +39,7 @@ func TestNewConfigCommandInitUsesAGWConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if len(loaded.WorkspaceRoots) != 1 || loaded.WorkspaceRoots[0] != "/tmp/agw" {
-		t.Fatalf("WorkspaceRoots = %#v", loaded.WorkspaceRoots)
+	if loaded.WorkspaceRoot != "/tmp/agw" {
+		t.Fatalf("WorkspaceRoot = %q", loaded.WorkspaceRoot)
 	}
 }

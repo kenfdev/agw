@@ -186,14 +186,15 @@ under `agw/config.yaml`. Set `AGW_CONFIG` to use a specific config file:
 export AGW_CONFIG="$HOME/.config/agw/config.yaml"
 ```
 
-`workspaceRoots` entries may use `~/`, `$HOME`, or `${HOME}`. AGW expands
-those values and cleans the resulting path when loading the config.
+`workspaceRoot` may use `~/`, `$HOME`, or `${HOME}`. AGW expands that value
+and cleans the resulting path when loading the config. Legacy configs with one
+`workspaceRoots` entry are accepted; configs with multiple legacy roots must be
+migrated by choosing one `workspaceRoot`.
 
-## Base environment guidance
+## Base environment
 
 AGW can include personal development-environment guidance in workspace
-preparation prompts. This is natural-language guidance for the agent that
-generates workspace files, not a shared Dockerfile template.
+preparation prompts and can manage a reusable base environment image.
 
 For a personal default, place your base container prompt in a Markdown file and
 point AGW at it from your user config. The LLM should do this during initial
@@ -205,11 +206,16 @@ Recommended location:
 ~/.config/agw/base-environment.md
 ```
 
-Global guidance in `~/.config/agw/config.yaml`:
+Global config in `~/.config/agw/config.yaml`:
 
 ```yaml
+workspaceRoot: /path/to/personal/agw-root
 baseEnvironment:
   guidancePath: base-environment.md
+  image: my-agw-base:latest
+  build:
+    context: base
+    dockerfile: Dockerfile
 ```
 
 The guidance file should describe preferences the LLM adapts into generated
@@ -233,6 +239,27 @@ Install the tools I commonly use in development containers:
 Prefer project-declared runtime versions over my defaults.
 Do not bake secrets into the image.
 ````
+
+When `baseEnvironment.image` is configured, `baseEnvironment.build.context` and
+`baseEnvironment.build.dockerfile` describe how to build the reusable image.
+Relative build contexts resolve from `workspaceRoot`; relative Dockerfile paths
+resolve from the build context. For the config above, AGW builds:
+
+```text
+/path/to/personal/agw-root/base/Dockerfile
+```
+
+Build and inspect the base image explicitly:
+
+```bash
+agw base build
+agw base status
+```
+
+`agw base status`, `agw status`, `agw doctor --json`, and the TUI show whether
+the image exists and how old it is using Docker image metadata. Workspace
+preparation prompts prefer the configured image as the workspace Dockerfile
+`FROM`, but this is not mandatory when a project needs an incompatible base.
 
 Workspace-specific guidance in `agw.yaml`:
 

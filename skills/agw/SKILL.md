@@ -19,7 +19,7 @@ my workspace". The agent uses JSON and agent-oriented CLI output internally.
    - Read command-specific help before using less familiar commands.
 2. Read `README.md` when workflow context is needed.
 3. Run `agw doctor <workspace> --json` or `agw doctor --all --json` before lifecycle decisions when a workspace already exists.
-4. Configured `workspaceRoots` may use `~/`, `$HOME`, or `${HOME}`; the CLI expands and cleans these paths when loading config.
+4. Configured `workspaceRoot` may use `~/`, `$HOME`, or `${HOME}`; the CLI expands and cleans this path when loading config. Legacy configs with one `workspaceRoots` entry load as `workspaceRoot`.
 
 ## Operating Model
 
@@ -30,6 +30,7 @@ my workspace". The agent uses JSON and agent-oriented CLI output internally.
 - Do not auto-detect or manage target project services unless the user specifically asks or `projects[].lifecycle.start` / `projects[].lifecycle.stop` is explicitly configured.
 - Do not edit files inside target repositories as part of workspace preparation. AGW owns its workspace files.
 - Generate workspace files in a temporary directory outside the AGW workspace directory before `workspace apply`; `apply` rejects generated directories that overlap the workspace.
+- If global config includes `baseEnvironment.image`, prefer that image as the workspace Dockerfile `FROM` by default, but treat it as a preference rather than a hard requirement when project constraints need another base.
 - Do not change Compose image names as a workaround for stale images. Diagnose stale containers/images, then rebuild or remove the old image intentionally.
 
 ## Common Flow
@@ -86,6 +87,11 @@ the same readiness checks and `lifecycle.start` handling as `agw start -d`.
 Press `b` to open a confirmation prompt before building the selected workspace;
 press `y` in that prompt to run the build.
 
+If a reusable base environment image is configured under `baseEnvironment`,
+use `agw base status` to inspect whether it exists and how old Docker reports
+it is. Use `agw base build` only when the user asks to build or refresh that
+shared base image.
+
 If a workspace `agw.yaml` contains `lifecycle.start`, `agw start` runs that
 shell command from the workspace directory instead of the default
 `docker compose up -d` startup step. This is intended for wrappers such as:
@@ -136,6 +142,7 @@ Use `agw workspace network add <workspace> <network>` only after confirming that
 When generating Docker/Compose files from `workspace prepare --agent-json`:
 
 - Prefer the user's global base-environment guidance when present; do not silently omit mandatory personal tooling such as Tailscale or dotfiles.
+- When the agent JSON includes `baseEnvironment.image`, prefer `FROM <image>` as the workspace Dockerfile base. This is not mandatory; if the project needs an incompatible image, use the project-appropriate base and explain why in generated workspace documentation or comments.
 - Project bind mount sources in generated Compose may use absolute paths, `~/`, `$HOME`, or `${HOME}`; `workspace apply` and `doctor` expand and clean those sources when checking them against `projects.hostPath`.
 - For Ubuntu 24.04 based sidecars, use the existing `ubuntu` user unless there is a clear project reason to create another user. Do not unconditionally create UID/GID 1000 users; `ubuntu:24.04` already provides `ubuntu:1000`.
 - If Tailscale is installed through the user's tools feature, Compose must also run the Tailscale entrypoint and provide runtime requirements: `TS_AUTHKEY` or `TS_AUTH_KEY`, `/dev/net/tun`, `NET_ADMIN`, `MKNOD`, and persistent `/var/lib/tailscale` state.

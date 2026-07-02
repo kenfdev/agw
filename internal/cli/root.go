@@ -33,6 +33,7 @@ func NewRootCommand(version string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.AddCommand(NewConfigCommand())
+	cmd.AddCommand(NewBaseCommand())
 	cmd.AddCommand(NewWorkspaceCommand())
 	cmd.AddCommand(
 		newLifecycleStartCommand(),
@@ -53,7 +54,7 @@ var runWorkspaceTUI = func(cmd *cobra.Command, configPath string) error {
 	if err != nil {
 		return err
 	}
-	actions := &tuiActions{out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
+	actions := &tuiActions{out: cmd.OutOrStdout(), err: cmd.ErrOrStderr(), configPath: configPath}
 	reports := make([]doctor.Report, 0, len(items))
 	for _, item := range items {
 		report, _ := actions.Refresh(item)
@@ -71,8 +72,9 @@ var runWorkspaceTUI = func(cmd *cobra.Command, configPath string) error {
 }
 
 type tuiActions struct {
-	out io.Writer
-	err io.Writer
+	out        io.Writer
+	err        io.Writer
+	configPath string
 }
 
 func (a *tuiActions) Status(item workspace.LocatedDefinition) (string, error) {
@@ -168,7 +170,10 @@ func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
 }
 
 func (a *tuiActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, error) {
-	return doctor.Diagnose(item, newLifecycleRunner(io.Discard, io.Discard)), nil
+	runner := newLifecycleRunner(io.Discard, io.Discard)
+	report := doctor.Diagnose(item, runner)
+	addBaseStatusToReport(&report, a.configPath, runner)
+	return report, nil
 }
 
 func (a *tuiActions) OpenPath(path string) (string, error) {

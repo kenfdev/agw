@@ -2,12 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kenfdev/agw/internal/apply"
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/config"
 	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/prepare"
@@ -193,10 +196,10 @@ func runWorkspaceNewFrom(cmd *cobra.Command, configPath, root, from, id, name, s
 		if err != nil {
 			return err
 		}
-		if len(cfg.WorkspaceRoots) == 0 {
-			return fmt.Errorf("config has no workspace roots")
+		if cfg.Root() == "" {
+			return fmt.Errorf("config has no workspace root")
 		}
-		root = cfg.WorkspaceRoots[0]
+		root = cfg.Root()
 	} else if configPath != "" {
 		cfg, _ = config.Load(configPath)
 	}
@@ -305,7 +308,7 @@ func newWorkspacePrepareCommand() *cobra.Command {
 				return err
 			}
 
-			registry := workspace.Registry{Roots: cfg.WorkspaceRoots}
+			registry := workspace.Registry{Roots: []string{cfg.Root()}}
 			located, err := registry.Find(args[0])
 			if err != nil {
 				return err
@@ -313,6 +316,18 @@ func newWorkspacePrepareCommand() *cobra.Command {
 			baseGuidance, baseEnvironmentMeta, err := loadBaseEnvironmentGuidance(path, cfg, located)
 			if err != nil {
 				return err
+			}
+			baseStatus := baseStatusForPrepare(cfg)
+			baseEnvironmentMeta.Image = baseStatusImage(baseStatus)
+			if baseStatus != nil {
+				baseEnvironmentMeta.BuildContext = baseStatus.Config.ContextDir
+				baseEnvironmentMeta.Dockerfile = baseStatus.Config.Dockerfile
+				baseEnvironmentMeta.ImageStatus = string(baseStatus.Status)
+				if baseStatus.CreatedAt != nil {
+					baseEnvironmentMeta.ImageCreatedAt = baseStatus.CreatedAt.Format(time.RFC3339)
+				}
+				baseEnvironmentMeta.ImageAge = baseStatus.Age
+				baseEnvironmentMeta.ImageError = baseStatus.Error
 			}
 
 			projectSnapshots := make([]scanner.ProjectSnapshot, 0, len(located.Definition.Projects))
@@ -335,6 +350,7 @@ func newWorkspacePrepareCommand() *cobra.Command {
 				Projects:          projectSnapshots,
 				NetworkCandidates: networkCandidatesForPrepare(located.Definition, availableNetworks),
 				BaseEnvironment:   baseGuidance,
+				BaseImage:         baseStatus,
 			})
 			if err != nil {
 				return err
@@ -383,6 +399,13 @@ type baseEnvironmentAgentPacket struct {
 	GlobalGuidancePath    string `json:"globalGuidancePath,omitempty"`
 	WorkspaceGuidancePath string `json:"workspaceGuidancePath,omitempty"`
 	IncludeGlobal         bool   `json:"includeGlobal"`
+	Image                 string `json:"image,omitempty"`
+	BuildContext          string `json:"buildContext,omitempty"`
+	Dockerfile            string `json:"dockerfile,omitempty"`
+	ImageStatus           string `json:"imageStatus,omitempty"`
+	ImageCreatedAt        string `json:"imageCreatedAt,omitempty"`
+	ImageAge              string `json:"imageAge,omitempty"`
+	ImageError            string `json:"imageError,omitempty"`
 }
 
 func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPath string, candidates []string, baseEnvironment baseEnvironmentAgentPacket) prepareAgentPacket {
@@ -416,6 +439,26 @@ func newPrepareAgentPacket(located workspace.LocatedDefinition, prompt, promptPa
 			fmt.Sprintf("agw start %s", def.ID),
 		},
 	}
+}
+
+func baseStatusForPrepare(cfg config.Config) *base.Status {
+	baseCfg, ok, err := base.Optional(cfg)
+	if err != nil {
+		status := base.Status{Status: base.StatusUnknown, Error: err.Error()}
+		return &status
+	}
+	if !ok {
+		return nil
+	}
+	status := inspectBaseImage(baseCfg, newLifecycleRunner(io.Discard, io.Discard), now())
+	return &status
+}
+
+func baseStatusImage(status *base.Status) string {
+	if status == nil {
+		return ""
+	}
+	return status.Config.Image
 }
 
 func loadBaseEnvironmentGuidance(configPath string, cfg config.Config, located workspace.LocatedDefinition) (prepare.BaseEnvironmentGuidance, baseEnvironmentAgentPacket, error) {
@@ -475,7 +518,7 @@ func newWorkspaceApplyCommand() *cobra.Command {
 				return err
 			}
 
-			registry := workspace.Registry{Roots: cfg.WorkspaceRoots}
+			registry := workspace.Registry{Roots: []string{cfg.Root()}}
 			located, err := registry.Find(args[0])
 			if err != nil {
 				return err

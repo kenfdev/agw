@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type Runner interface {
@@ -20,6 +21,10 @@ type Runner interface {
 type Network struct {
 	Name   string
 	Labels map[string]string
+}
+
+type ImageInfo struct {
+	CreatedAt time.Time
 }
 
 type CLI struct {
@@ -50,12 +55,21 @@ var runComposePs = func(dir string, service string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
+var runImageInspect = func(image string) ([]byte, error) {
+	cmd := exec.Command("docker", "image", "inspect", image)
+	return cmd.CombinedOutput()
+}
+
 func (c CLI) ComposeConfig(dir string) error {
 	return c.compose(dir, "docker", "compose", "config")
 }
 
 func (c CLI) Build(dir string) error {
 	return c.compose(dir, "docker", "compose", "build")
+}
+
+func (c CLI) BuildImage(contextDir string, dockerfile string, image string) error {
+	return c.compose(contextDir, "docker", "build", "-t", image, "-f", dockerfile, contextDir)
 }
 
 func (c CLI) Up(dir string) error {
@@ -117,6 +131,33 @@ func (c CLI) ServiceRunning(dir string, service string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(string(out)) != "", nil
+}
+
+func (CLI) InspectImage(image string) (ImageInfo, bool, error) {
+	out, err := runImageInspect(image)
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok && isImageNotFoundOutput(out) {
+			return ImageInfo{}, false, nil
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return ImageInfo{}, false, fmt.Errorf("%w: %s", exitErr, out)
+		}
+		return ImageInfo{}, false, err
+	}
+	var payload []struct {
+		Created string `json:"Created"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return ImageInfo{}, false, err
+	}
+	if len(payload) == 0 || strings.TrimSpace(payload[0].Created) == "" {
+		return ImageInfo{}, true, nil
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, payload[0].Created)
+	if err != nil {
+		return ImageInfo{}, false, err
+	}
+	return ImageInfo{CreatedAt: createdAt}, true, nil
 }
 
 func shellCommand(command string) (string, []string) {
@@ -226,4 +267,9 @@ func parseLabelsFromJSON(raw json.RawMessage) map[string]string {
 func isNetworkNotFoundOutput(output []byte) bool {
 	out := strings.ToLower(strings.TrimSpace(string(output)))
 	return strings.Contains(out, "no such network") || (strings.Contains(out, "network") && strings.Contains(out, "not found"))
+}
+
+func isImageNotFoundOutput(output []byte) bool {
+	out := strings.ToLower(strings.TrimSpace(string(output)))
+	return strings.Contains(out, "no such image") || strings.Contains(out, "no such object") || (strings.Contains(out, "image") && strings.Contains(out, "not found"))
 }

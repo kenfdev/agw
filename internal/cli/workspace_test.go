@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +56,7 @@ func TestWorkspacePrepareWritesPromptToOutputFile(t *testing.T) {
 	}
 
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -125,13 +126,21 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
 	if err := config.Save(cfgPath, config.Config{
-		WorkspaceRoots: []string{root},
+		WorkspaceRoot: root,
 		BaseEnvironment: config.BaseEnvironment{
 			GuidancePath: "base-environment.md",
+			Image:        "agw-base:latest",
+			Build:        config.Build{Context: "base", Dockerfile: "Dockerfile"},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
+	fake := &lifecycleFakeRunner{}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(stdout, stderr io.Writer) lifecycleRunner {
+		return fake
+	}
+	defer func() { newLifecycleRunner = oldRunner }()
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -159,6 +168,10 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 			GlobalGuidancePath    string `json:"globalGuidancePath,omitempty"`
 			WorkspaceGuidancePath string `json:"workspaceGuidancePath,omitempty"`
 			IncludeGlobal         bool   `json:"includeGlobal"`
+			Image                 string `json:"image,omitempty"`
+			BuildContext          string `json:"buildContext,omitempty"`
+			Dockerfile            string `json:"dockerfile,omitempty"`
+			ImageStatus           string `json:"imageStatus,omitempty"`
 		} `json:"baseEnvironment"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
@@ -182,6 +195,9 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 	if !strings.Contains(got.Prompt, "Prefer devcontainer-features.") || !strings.Contains(got.Prompt, "Install PostgreSQL client tools.") {
 		t.Fatalf("prompt missing base environment guidance:\n%s", got.Prompt)
 	}
+	if !strings.Contains(got.Prompt, "FROM agw-base:latest") || !strings.Contains(got.Prompt, "preferred default, not a hard requirement") {
+		t.Fatalf("prompt missing base image guidance:\n%s", got.Prompt)
+	}
 	if got.BaseEnvironment.GlobalGuidancePath != globalGuidance {
 		t.Fatalf("globalGuidancePath = %q, want %q", got.BaseEnvironment.GlobalGuidancePath, globalGuidance)
 	}
@@ -190,6 +206,18 @@ func TestWorkspacePreparePrintsAgentJSON(t *testing.T) {
 	}
 	if !got.BaseEnvironment.IncludeGlobal {
 		t.Fatal("includeGlobal = false, want true")
+	}
+	if got.BaseEnvironment.Image != "agw-base:latest" {
+		t.Fatalf("base image = %q", got.BaseEnvironment.Image)
+	}
+	if got.BaseEnvironment.BuildContext != filepath.Join(root, "base") {
+		t.Fatalf("buildContext = %q", got.BaseEnvironment.BuildContext)
+	}
+	if got.BaseEnvironment.Dockerfile != filepath.Join(root, "base", "Dockerfile") {
+		t.Fatalf("dockerfile = %q", got.BaseEnvironment.Dockerfile)
+	}
+	if got.BaseEnvironment.ImageStatus != "missing" {
+		t.Fatalf("imageStatus = %q", got.BaseEnvironment.ImageStatus)
 	}
 	if !containsString(got.ExpectedGeneratedFiles, "Dockerfile") || !containsString(got.ExpectedGeneratedFiles, "compose.yaml") {
 		t.Fatalf("expectedGeneratedFiles = %#v", got.ExpectedGeneratedFiles)
@@ -227,7 +255,7 @@ func TestWorkspacePrepareFailsWhenConfiguredGuidanceMissing(t *testing.T) {
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
 	if err := config.Save(cfgPath, config.Config{
-		WorkspaceRoots: []string{root},
+		WorkspaceRoot: root,
 		BaseEnvironment: config.BaseEnvironment{
 			GuidancePath: "missing.md",
 		},
@@ -276,7 +304,7 @@ func TestWorkspacePrepareIncludeGlobalFalseSkipsGlobalGuidance(t *testing.T) {
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
 	if err := config.Save(cfgPath, config.Config{
-		WorkspaceRoots: []string{root},
+		WorkspaceRoot: root,
 		BaseEnvironment: config.BaseEnvironment{
 			GuidancePath: "missing-global.md",
 		},
@@ -324,7 +352,7 @@ func TestWorkspaceApplyValidatesGeneratedDirectoryBeforeCopying(t *testing.T) {
 	mustWriteCLI(t, filepath.Join(genDir, "compose.yaml"), "services:\n  dev:\n    build: .\n")
 
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -391,7 +419,7 @@ func TestWorkspaceNetworkAddPersistsExternalNetworkSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -429,7 +457,7 @@ func TestWorkspaceNetworkAddDoesNotDuplicateExistingSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -476,4 +504,8 @@ func (r cliFakeRunner) ComposeConfig(dir string) error {
 	return nil
 }
 
+func (cliFakeRunner) BuildImage(string, string, string) error { return nil }
+func (cliFakeRunner) InspectImage(string) (docker.ImageInfo, bool, error) {
+	return docker.ImageInfo{}, false, nil
+}
 func (cliFakeRunner) NetworkExists(string) (bool, error) { return true, nil }

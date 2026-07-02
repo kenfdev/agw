@@ -310,9 +310,21 @@ func (m Model) detailsLines() []string {
 		fmt.Sprintf("Workspace: %s", report.WorkspaceID),
 		fmt.Sprintf("State:     %s", report.State),
 		fmt.Sprintf("Next:      %s", emptyDefault(report.NextAction, "none")),
-		"",
-		"Checks:",
 	}
+	if report.BaseEnvironment != nil {
+		lines = append(lines,
+			"",
+			fmt.Sprintf("Base image:  %s", report.BaseEnvironment.Config.Image),
+			fmt.Sprintf("Base status: %s", report.BaseEnvironment.Status),
+		)
+		if report.BaseEnvironment.Age != "" {
+			lines = append(lines, fmt.Sprintf("Base age:    %s", report.BaseEnvironment.Age))
+		}
+		if report.BaseEnvironment.Error != "" {
+			lines = append(lines, fmt.Sprintf("Base error:  %s", report.BaseEnvironment.Error))
+		}
+	}
+	lines = append(lines, "", "Checks:")
 	if len(report.Checks) == 0 {
 		return append(lines, "  none")
 	}

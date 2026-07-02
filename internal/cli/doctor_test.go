@@ -155,12 +155,16 @@ func (r noisyDoctorRunner) UpDetached(string) error { return nil }
 func (r noisyDoctorRunner) UpDetachedWithOptions(string, docker.UpOptions) error {
 	return nil
 }
-func (r noisyDoctorRunner) Down(string) error                   { return nil }
-func (r noisyDoctorRunner) Stop(string) error                   { return nil }
-func (r noisyDoctorRunner) Logs(string, string) (string, error) { return "", nil }
-func (r noisyDoctorRunner) Attach(string, string) error         { return nil }
-func (r noisyDoctorRunner) RunShell(string, string) error       { return nil }
-func (r noisyDoctorRunner) NetworkExists(string) (bool, error)  { return true, nil }
+func (r noisyDoctorRunner) Down(string) error                       { return nil }
+func (r noisyDoctorRunner) Stop(string) error                       { return nil }
+func (r noisyDoctorRunner) Logs(string, string) (string, error)     { return "", nil }
+func (r noisyDoctorRunner) Attach(string, string) error             { return nil }
+func (r noisyDoctorRunner) RunShell(string, string) error           { return nil }
+func (r noisyDoctorRunner) BuildImage(string, string, string) error { return nil }
+func (r noisyDoctorRunner) InspectImage(string) (docker.ImageInfo, bool, error) {
+	return docker.ImageInfo{}, false, nil
+}
+func (r noisyDoctorRunner) NetworkExists(string) (bool, error) { return true, nil }
 func (r noisyDoctorRunner) ServiceRunning(string, string) (bool, error) {
 	return false, nil
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,13 +10,21 @@ import (
 )
 
 type Config struct {
-	WorkspaceRoots  []string        `yaml:"workspaceRoots"`
+	WorkspaceRoot   string          `yaml:"workspaceRoot,omitempty"`
+	WorkspaceRoots  []string        `yaml:"workspaceRoots,omitempty"`
 	PathMappings    []PathMapping   `yaml:"pathMappings,omitempty"`
 	BaseEnvironment BaseEnvironment `yaml:"baseEnvironment,omitempty"`
 }
 
 type BaseEnvironment struct {
 	GuidancePath string `yaml:"guidancePath,omitempty"`
+	Image        string `yaml:"image,omitempty"`
+	Build        Build  `yaml:"build,omitempty"`
+}
+
+type Build struct {
+	Context    string `yaml:"context,omitempty"`
+	Dockerfile string `yaml:"dockerfile,omitempty"`
 }
 
 type PathMapping struct {
@@ -43,16 +52,22 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.WorkspaceRoots = normalizeWorkspaceRoots(cfg.WorkspaceRoots)
-	return cfg, nil
-}
-
-func normalizeWorkspaceRoots(roots []string) []string {
-	out := make([]string, len(roots))
-	for i, root := range roots {
-		out[i] = normalizePath(root)
+	if cfg.WorkspaceRoot == "" {
+		switch len(cfg.WorkspaceRoots) {
+		case 0:
+		case 1:
+			cfg.WorkspaceRoot = cfg.WorkspaceRoots[0]
+		default:
+			return Config{}, fmt.Errorf("config uses legacy workspaceRoots with multiple entries; choose one and set workspaceRoot")
+		}
 	}
-	return out
+	cfg.WorkspaceRoot = normalizePath(cfg.WorkspaceRoot)
+	if cfg.WorkspaceRoot != "" {
+		cfg.WorkspaceRoots = []string{cfg.WorkspaceRoot}
+	} else {
+		cfg.WorkspaceRoots = nil
+	}
+	return cfg, nil
 }
 
 func normalizePath(path string) string {
@@ -76,9 +91,24 @@ func Save(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	if cfg.WorkspaceRoot == "" && len(cfg.WorkspaceRoots) == 1 {
+		cfg.WorkspaceRoot = cfg.WorkspaceRoots[0]
+	}
+	cfg.WorkspaceRoot = normalizePath(cfg.WorkspaceRoot)
+	cfg.WorkspaceRoots = nil
 	b, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, b, 0o644)
+}
+
+func (c Config) Root() string {
+	if c.WorkspaceRoot != "" {
+		return c.WorkspaceRoot
+	}
+	if len(c.WorkspaceRoots) == 1 {
+		return c.WorkspaceRoots[0]
+	}
+	return ""
 }

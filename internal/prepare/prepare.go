@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/scanner"
 	"github.com/kenfdev/agw/internal/workspace"
 )
@@ -13,6 +14,7 @@ type Input struct {
 	Projects          []scanner.ProjectSnapshot
 	NetworkCandidates []string
 	BaseEnvironment   BaseEnvironmentGuidance
+	BaseImage         *base.Status
 }
 
 type BaseEnvironmentGuidance struct {
@@ -70,6 +72,26 @@ func Render(input Input) (string, error) {
 			fmt.Fprintln(&b, "### Workspace Guidance")
 			fmt.Fprintln(&b)
 			fmt.Fprintln(&b, input.BaseEnvironment.Workspace)
+		}
+	}
+
+	if input.BaseImage != nil && input.BaseImage.Config.Image != "" {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "## Base Environment Image")
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "A reusable AGW base image is configured.")
+		fmt.Fprintln(&b, "Prefer this image as the first stage/base layer for the workspace Dockerfile:")
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "```Dockerfile\nFROM %s\n```\n", input.BaseImage.Config.Image)
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "This is a preferred default, not a hard requirement.")
+		fmt.Fprintln(&b, "If the project needs an incompatible base image, use the project-appropriate base instead and explain the reason in generated workspace documentation or comments.")
+		if input.BaseImage.Status != "" {
+			fmt.Fprintf(&b, "Current base image status: `%s`", input.BaseImage.Status)
+			if input.BaseImage.Age != "" {
+				fmt.Fprintf(&b, " (age `%s`)", input.BaseImage.Age)
+			}
+			fmt.Fprintln(&b)
 		}
 	}
 

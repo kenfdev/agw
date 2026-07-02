@@ -664,7 +664,7 @@ func TestLifecycleListShowsHeaderAndLifecycleState(t *testing.T) {
 	mustWriteStartWorkspaceFiles(t, wsB, "api", "")
 
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -738,7 +738,7 @@ func mustWriteLifecycleWorkspace(t *testing.T, root, id, service string) (string
 	}
 	mustWriteLifecycleDefinitionFile(t, defPath, def)
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 	return cfgPath, wsPath
@@ -759,7 +759,7 @@ func mustWriteLifecycleWorkspaceWithNetworks(t *testing.T, root, id, service str
 	}
 	mustWriteLifecycleDefinitionFile(t, defPath, def)
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 	return cfgPath, wsPath
@@ -798,7 +798,7 @@ func mustWriteLifecycleDefinition(t *testing.T, root, id string, def workspace.D
 	defPath, wsPath := createLifecycleDir(t, root, id)
 	mustWriteLifecycleDefinitionFile(t, defPath, def)
 	cfgPath := filepath.Join(root, "config.yaml")
-	if err := config.Save(cfgPath, config.Config{WorkspaceRoots: []string{root}}); err != nil {
+	if err := config.Save(cfgPath, config.Config{WorkspaceRoot: root}); err != nil {
 		t.Fatal(err)
 	}
 	return cfgPath, wsPath
@@ -845,18 +845,24 @@ func mustMkdirAll(t *testing.T, path string) {
 }
 
 type lifecycleFakeRunner struct {
-	calls         []string
-	buildDir      string
-	upDir         string
-	upDetachedDir string
-	upOptions     docker.UpOptions
-	downDir       string
-	stopDir       string
-	attachDir     string
-	attachService string
-	shellDir      string
-	shellCommand  string
-	shellErrors   map[string]error
+	calls                []string
+	buildDir             string
+	upDir                string
+	upDetachedDir        string
+	upOptions            docker.UpOptions
+	downDir              string
+	stopDir              string
+	attachDir            string
+	attachService        string
+	shellDir             string
+	shellCommand         string
+	shellErrors          map[string]error
+	buildImageContext    string
+	buildImageDockerfile string
+	buildImageName       string
+	inspectImageInfo     docker.ImageInfo
+	inspectImageExists   bool
+	inspectImageErr      error
 
 	networkExists       map[string]bool
 	serviceRunning      bool
@@ -923,6 +929,18 @@ func (r *lifecycleFakeRunner) RunShell(dir string, command string) error {
 		}
 	}
 	return nil
+}
+
+func (r *lifecycleFakeRunner) BuildImage(contextDir string, dockerfile string, image string) error {
+	r.calls = append(r.calls, "build-image:"+contextDir+":"+dockerfile+":"+image)
+	r.buildImageContext = contextDir
+	r.buildImageDockerfile = dockerfile
+	r.buildImageName = image
+	return nil
+}
+
+func (r *lifecycleFakeRunner) InspectImage(string) (docker.ImageInfo, bool, error) {
+	return r.inspectImageInfo, r.inspectImageExists, r.inspectImageErr
 }
 
 func (r *lifecycleFakeRunner) ComposeConfig(string) error { return nil }

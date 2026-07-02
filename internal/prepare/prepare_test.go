@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/scanner"
 	"github.com/kenfdev/agw/internal/workspace"
 )
@@ -107,5 +108,32 @@ func TestRenderPromptOmitsBaseEnvironmentSectionWhenEmpty(t *testing.T) {
 	}
 	if strings.Contains(out, "## Base Environment Guidance") {
 		t.Fatalf("unexpected guidance section:\n%s", out)
+	}
+}
+
+func TestRenderPromptContainsPreferredBaseImage(t *testing.T) {
+	out, err := Render(Input{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		},
+		BaseImage: &base.Status{
+			Config: base.Config{Image: "agw-base:latest"},
+			Status: base.StatusAvailable,
+			Age:    "3h",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"## Base Environment Image",
+		"FROM agw-base:latest",
+		"preferred default, not a hard requirement",
+		"Current base image status: `available` (age `3h`)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
 	}
 }

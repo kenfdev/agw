@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
 	"github.com/spf13/cobra"
@@ -42,7 +43,7 @@ func newDoctorCommand() *cobra.Command {
 				if jsonOut {
 					reports := make([]doctor.Report, 0, len(items))
 					for _, located := range items {
-						reports = append(reports, diagnoseWorkspace(cmd, located, io.Discard))
+						reports = append(reports, diagnoseWorkspace(cmd, configPath, located, io.Discard))
 					}
 					return writeJSON(cmd.OutOrStdout(), reports)
 				}
@@ -58,7 +59,7 @@ func newDoctorCommand() *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return writeJSON(cmd.OutOrStdout(), diagnoseWorkspace(cmd, located, io.Discard))
+				return writeJSON(cmd.OutOrStdout(), diagnoseWorkspace(cmd, configPath, located, io.Discard))
 			}
 			return runDoctorCommand(cmd, located)
 		},
@@ -99,13 +100,34 @@ func findDoctorDefinition(path, workspaceID string) (workspace.LocatedDefinition
 }
 
 func runDoctorCommand(cmd *cobra.Command, located workspace.LocatedDefinition) error {
-	report := diagnoseWorkspace(cmd, located, cmd.OutOrStdout())
+	configPath, _ := cmd.Flags().GetString("config")
+	report := diagnoseWorkspace(cmd, configPath, located, cmd.OutOrStdout())
 	return writeDoctorReport(cmd.OutOrStdout(), report)
 }
 
-func diagnoseWorkspace(cmd *cobra.Command, located workspace.LocatedDefinition, stdout io.Writer) doctor.Report {
+func diagnoseWorkspace(cmd *cobra.Command, configPath string, located workspace.LocatedDefinition, stdout io.Writer) doctor.Report {
 	runner := newLifecycleRunner(stdout, cmd.ErrOrStderr())
-	return doctor.Diagnose(located, runner)
+	report := doctor.Diagnose(located, runner)
+	addBaseStatusToReport(&report, configPath, runner)
+	return report
+}
+
+func addBaseStatusToReport(report *doctor.Report, configPath string, runner baseRunner) {
+	cfg, err := loadConfigForPath(configPath)
+	if err != nil {
+		return
+	}
+	baseCfg, ok, err := base.Optional(cfg)
+	if err != nil {
+		status := base.Status{Status: base.StatusUnknown, Error: err.Error()}
+		report.BaseEnvironment = &status
+		return
+	}
+	if !ok {
+		return
+	}
+	status := inspectBaseImage(baseCfg, runner, now())
+	report.BaseEnvironment = &status
 }
 
 func writeJSON(out io.Writer, value any) error {
@@ -123,6 +145,15 @@ func writeDoctorReport(out io.Writer, report doctor.Report) error {
 	for _, check := range report.Checks {
 		symbol := checkStatusSymbol(check.Status)
 		if _, err := fmt.Fprintf(out, "  %s %s: %s\n", symbol, check.Name, check.Detail); err != nil {
+			return err
+		}
+	}
+
+	if report.BaseEnvironment != nil {
+		if _, err := fmt.Fprintln(out, "\nBase environment:"); err != nil {
+			return err
+		}
+		if err := writeBaseStatus(out, *report.BaseEnvironment); err != nil {
 			return err
 		}
 	}

@@ -26,6 +26,8 @@ type lifecycleRunner interface {
 	Logs(dir string, service string) (string, error)
 	Attach(dir string, service string) error
 	RunShell(dir string, command string) error
+	BuildImage(contextDir string, dockerfile string, image string) error
+	InspectImage(image string) (docker.ImageInfo, bool, error)
 	ComposeConfig(dir string) error
 	NetworkExists(name string) (bool, error)
 	ServiceRunning(dir string, service string) (bool, error)
@@ -273,6 +275,7 @@ func newLifecycleStatusCommand() *cobra.Command {
 			}
 			runner := newLifecycleRunner(io.Discard, io.Discard)
 			report := doctor.Diagnose(located, runner)
+			addBaseStatusToReport(&report, configPath, runner)
 			return writeLifecycleStatus(cmd.OutOrStdout(), located, runner, report)
 		},
 	}
@@ -353,6 +356,14 @@ func writeLifecycleStatus(out io.Writer, located workspace.LocatedDefinition, ru
 			return err
 		}
 	}
+	if report.BaseEnvironment != nil {
+		if _, err := fmt.Fprintln(out, "\nBase environment:"); err != nil {
+			return err
+		}
+		if err := writeBaseStatus(out, *report.BaseEnvironment); err != nil {
+			return err
+		}
+	}
 	next := report.NextAction
 	if strings.TrimSpace(next) == "" {
 		next = "none"
@@ -377,7 +388,7 @@ func listDefinitions(path string) ([]workspace.LocatedDefinition, error) {
 	if err != nil {
 		return nil, err
 	}
-	registry := workspace.Registry{Roots: cfg.WorkspaceRoots}
+	registry := workspace.Registry{Roots: []string{cfg.Root()}}
 	return registry.List()
 }
 
@@ -394,6 +405,6 @@ func findLocatedDefinition(path, workspaceID string) (workspace.LocatedDefinitio
 	if err != nil {
 		return workspace.LocatedDefinition{}, err
 	}
-	registry := workspace.Registry{Roots: cfg.WorkspaceRoots}
+	registry := workspace.Registry{Roots: []string{cfg.Root()}}
 	return registry.Find(workspaceID)
 }

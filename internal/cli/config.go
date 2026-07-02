@@ -26,7 +26,7 @@ func NewConfigCommand() *cobra.Command {
 					return err
 				}
 			}
-			return config.Save(path, config.Config{WorkspaceRoots: []string{root}})
+			return config.Save(path, config.Config{WorkspaceRoot: root})
 		},
 	}
 	initCmd.Flags().StringVar(&configPath, "config", "", "config file path")
