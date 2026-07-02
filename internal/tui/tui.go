@@ -7,17 +7,25 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbletea"
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
+)
+
+const (
+	focusWorkspaces = "workspaces"
+	focusBase       = "base"
 )
 
 type Model struct {
 	workspaces    []workspace.LocatedDefinition
 	reports       []doctor.Report
+	baseStatus    *base.Status
 	actions       Actions
 	selected      int
 	status        string
 	mode          string
+	focus         string
 	filter        string
 	viewerTitle   string
 	viewerPath    string
@@ -34,6 +42,8 @@ type Actions interface {
 	Status(workspace.LocatedDefinition) (string, error)
 	Start(workspace.LocatedDefinition) (string, error)
 	Build(workspace.LocatedDefinition) (string, error)
+	BaseStatus() (*base.Status, error)
+	BuildBase() (string, error)
 	Up(workspace.LocatedDefinition) (string, error)
 	Down(workspace.LocatedDefinition) (string, error)
 	Attach(workspace.LocatedDefinition) (string, error)
@@ -47,22 +57,32 @@ type Actions interface {
 }
 
 func NewModel(workspaces []workspace.LocatedDefinition) Model {
-	return newModel(workspaces, nil, nil)
+	return newModel(workspaces, nil, nil, nil)
 }
 
 func NewModelWithActions(workspaces []workspace.LocatedDefinition, actions Actions) Model {
-	return newModel(workspaces, nil, actions)
+	return newModel(workspaces, nil, nil, actions)
 }
 
 func NewModelWithReports(reports []doctor.Report, actions Actions) Model {
-	return newModel(nil, reports, actions)
+	return newModel(nil, reports, nil, actions)
 }
 
-func newModel(workspaces []workspace.LocatedDefinition, reports []doctor.Report, actions Actions) Model {
+func NewModelWithReportsAndBaseStatus(reports []doctor.Report, baseStatus *base.Status, actions Actions) Model {
+	return newModel(nil, reports, baseStatus, actions)
+}
+
+func NewModelWithWorkspacesReportsAndBaseStatus(workspaces []workspace.LocatedDefinition, reports []doctor.Report, baseStatus *base.Status, actions Actions) Model {
+	return newModel(workspaces, reports, baseStatus, actions)
+}
+
+func newModel(workspaces []workspace.LocatedDefinition, reports []doctor.Report, baseStatus *base.Status, actions Actions) Model {
 	return Model{
 		workspaces: workspaces,
 		reports:    reports,
+		baseStatus: baseStatus,
 		actions:    actions,
+		focus:      focusWorkspaces,
 	}
 }
 
@@ -78,11 +98,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyTab {
-			if m.mode == "details" {
-				m.mode = ""
-			} else {
-				m.mode = "details"
-			}
+			m = m.cycleFocus()
 			return m, nil
 		}
 		if m.mode == "filter" {
@@ -93,6 +109,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "confirm-build" {
 			return m.updateConfirmBuild(msg)
+		}
+		if m.mode == "confirm-base-build" {
+			return m.updateConfirmBaseBuild(msg)
 		}
 		if m.mode == "project-selector" {
 			return m.updateProjectSelector(msg)
@@ -113,15 +132,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			m.mode = "filter"
 		case "up", "k":
-			m.moveSelection(-1)
+			if m.focus == focusWorkspaces {
+				m.moveSelection(-1)
+			}
 		case "down", "j":
-			m.moveSelection(1)
+			if m.focus == focusWorkspaces {
+				m.moveSelection(1)
+			}
 		case "home", "g":
 			m.selectVisibleEdge(false)
 		case "end", "G":
 			m.selectVisibleEdge(true)
 		case "enter":
-			m.mode = "details"
+			if m.focus == focusWorkspaces {
+				m.mode = "details"
+			}
 		case "s":
 			m = m.requestShellAndQuit()
 		case "t":
@@ -129,7 +154,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.actions.Start(item)
 			})
 		case "b":
-			m = m.confirmBuild()
+			if m.focus == focusBase {
+				m = m.confirmBaseBuild()
+			} else {
+				m = m.confirmBuild()
+			}
 		case "u":
 			m = m.runAction("up", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Up(item)
@@ -143,7 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.actions.Prepare(item)
 			})
 		case "r":
-			m = m.refreshSelectedReport()
+			m = m.refreshFocused()
 		case "l":
 			m = m.openLogs()
 		case "d":
@@ -188,6 +217,9 @@ func (m Model) View() string {
 	if m.mode == "confirm-build" {
 		return m.confirmBuildView()
 	}
+	if m.mode == "confirm-base-build" {
+		return m.confirmBaseBuildView()
+	}
 	if m.hasWindowSize() {
 		return m.fullscreenView()
 	}
@@ -216,22 +248,10 @@ func (m Model) View() string {
 		}
 	}
 
-	if report, ok := m.currentReportForDetails(); ok {
-		lines = append(lines,
-			"",
-			"Details",
-			fmt.Sprintf("  Workspace: %s", report.WorkspaceID),
-			fmt.Sprintf("  State: %s", report.State),
-			fmt.Sprintf("  Next: %s", report.NextAction),
-			"",
-			"Checks",
-		)
-		if len(report.Checks) == 0 {
-			lines = append(lines, "  none")
-		} else {
-			for _, check := range report.Checks {
-				lines = append(lines, fmt.Sprintf("  %s %s: %s", checkStatusSymbol(check.Status), check.Name, check.Detail))
-			}
+	if detailLines := m.detailsLines(); len(detailLines) > 0 {
+		lines = append(lines, "", "Details")
+		for _, line := range detailLines {
+			lines = append(lines, "  "+line)
 		}
 	}
 	lines = append(lines, "", "Logs")
@@ -240,7 +260,7 @@ func (m Model) View() string {
 	} else {
 		lines = append(lines, "  idle")
 	}
-	lines = append(lines, "", "Keys  ↑/↓/j/k move  enter/tab details  t start  b build  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
+	lines = append(lines, "", "Keys  tab focus  ↑/↓/j/k move  enter details  t start  b build focused  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
 	return strings.Join(lines, "\n")
 }
 
@@ -272,7 +292,7 @@ func (m Model) fullscreenView() string {
 	lines = append(lines, borderedBlock(m.topBar(), m.workspaceLines(), m.width, listHeight)...)
 	lines = append(lines, borderedBlock("Details", m.detailsLines(), m.width, detailsHeight)...)
 	lines = append(lines, borderedBlock("Logs", m.logLines(), m.width, logHeight)...)
-	lines = append(lines, borderedBlock("Keys", []string{"↑/↓/j/k move  enter/tab details  t start  b build  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
+	lines = append(lines, borderedBlock("Keys", []string{"tab focus  ↑/↓/j/k move  enter details  t start  b build focused  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
 	return strings.Join(fitLineCount(lines, m.height, m.width), "\n")
 }
 
@@ -302,6 +322,9 @@ func (m Model) workspaceLines() []string {
 }
 
 func (m Model) detailsLines() []string {
+	if m.focus == focusBase {
+		return m.baseDetailsLines()
+	}
 	report, ok := m.currentReportForDetails()
 	if !ok {
 		return []string{"No workspace selected"}
@@ -310,19 +333,6 @@ func (m Model) detailsLines() []string {
 		fmt.Sprintf("Workspace: %s", report.WorkspaceID),
 		fmt.Sprintf("State:     %s", report.State),
 		fmt.Sprintf("Next:      %s", emptyDefault(report.NextAction, "none")),
-	}
-	if report.BaseEnvironment != nil {
-		lines = append(lines,
-			"",
-			fmt.Sprintf("Base image:  %s", report.BaseEnvironment.Config.Image),
-			fmt.Sprintf("Base status: %s", report.BaseEnvironment.Status),
-		)
-		if report.BaseEnvironment.Age != "" {
-			lines = append(lines, fmt.Sprintf("Base age:    %s", report.BaseEnvironment.Age))
-		}
-		if report.BaseEnvironment.Error != "" {
-			lines = append(lines, fmt.Sprintf("Base error:  %s", report.BaseEnvironment.Error))
-		}
 	}
 	lines = append(lines, "", "Checks:")
 	if len(report.Checks) == 0 {
@@ -350,7 +360,12 @@ func emptyDefault(value, fallback string) string {
 
 func (m Model) topBar() string {
 	count := len(m.visibleIndexes())
-	return fmt.Sprintf("AGW / Workspaces   %d/%d visible   mode:%s", count, len(m.workspaces), m.displayMode())
+	parts := []string{fmt.Sprintf("AGW / Workspaces   %d/%d visible", count, len(m.workspaces))}
+	if segment := m.baseSegment(); segment != "" {
+		parts = append(parts, segment)
+	}
+	parts = append(parts, "focus:"+m.displayFocus(), "mode:"+m.displayMode())
+	return strings.Join(parts, "   ")
 }
 
 func (m Model) displayMode() string {
@@ -358,6 +373,71 @@ func (m Model) displayMode() string {
 		return "list"
 	}
 	return m.mode
+}
+
+func (m Model) displayFocus() string {
+	if m.focus == "" {
+		return focusWorkspaces
+	}
+	return m.focus
+}
+
+func (m Model) cycleFocus() Model {
+	if m.baseStatus == nil || strings.TrimSpace(m.baseStatus.Config.Image) == "" {
+		m.focus = focusWorkspaces
+		return m
+	}
+	if m.focus == focusBase {
+		m.focus = focusWorkspaces
+	} else {
+		m.focus = focusBase
+	}
+	return m
+}
+
+func (m Model) baseSegment() string {
+	if m.baseStatus == nil || strings.TrimSpace(m.baseStatus.Config.Image) == "" {
+		return ""
+	}
+	values := []string{"Base:", m.baseStatus.Config.Image}
+	if m.baseStatus.Status != "" {
+		values = append(values, string(m.baseStatus.Status))
+	}
+	if m.baseStatus.Age != "" {
+		values = append(values, m.baseStatus.Age)
+	}
+	segment := strings.Join(values, " ")
+	if m.focus == focusBase {
+		return "[" + segment + "]"
+	}
+	return segment
+}
+
+func (m Model) baseDetailsLines() []string {
+	if m.baseStatus == nil {
+		return []string{"No base image configured"}
+	}
+	lines := []string{
+		fmt.Sprintf("Base image:  %s", m.baseStatus.Config.Image),
+		fmt.Sprintf("Status:      %s", emptyDefault(string(m.baseStatus.Status), "unknown")),
+	}
+	if m.baseStatus.Age != "" {
+		lines = append(lines, fmt.Sprintf("Age:         %s", m.baseStatus.Age))
+	}
+	if m.baseStatus.CreatedAt != nil {
+		lines = append(lines, fmt.Sprintf("Created:     %s", m.baseStatus.CreatedAt.Format("2006-01-02T15:04:05Z07:00")))
+	}
+	lines = append(lines,
+		fmt.Sprintf("Context:     %s", m.baseStatus.Config.ContextDir),
+		fmt.Sprintf("Dockerfile:  %s", m.baseStatus.Config.Dockerfile),
+	)
+	if m.baseStatus.Error != "" {
+		lines = append(lines, fmt.Sprintf("Error:       %s", m.baseStatus.Error))
+	}
+	if m.baseStatus.Status == base.StatusMissing {
+		lines = append(lines, "Next:        press b to build")
+	}
+	return lines
 }
 
 func (m Model) runAction(name string, run func(workspace.LocatedDefinition) (string, error)) Model {
@@ -425,6 +505,48 @@ func (m Model) refreshSelectedReport() Model {
 	return m
 }
 
+func (m Model) refreshFocused() Model {
+	if m.focus == focusBase {
+		return m.refreshBaseStatus()
+	}
+	m = m.refreshSelectedReport()
+	return m.refreshBaseStatusQuiet()
+}
+
+func (m Model) refreshBaseStatus() Model {
+	if m.actions == nil {
+		m.status = "base refresh failed: no actions configured"
+		return m
+	}
+	status, err := m.actions.BaseStatus()
+	if err != nil {
+		m.status = "base refresh failed: " + err.Error()
+		return m
+	}
+	m.baseStatus = status
+	if status == nil || strings.TrimSpace(status.Config.Image) == "" {
+		m.focus = focusWorkspaces
+		m.status = "base refresh ok: not configured"
+		return m
+	}
+	m.status = "base refresh ok: " + status.Config.Image
+	return m
+}
+
+func (m Model) refreshBaseStatusQuiet() Model {
+	if m.actions == nil {
+		return m
+	}
+	status, err := m.actions.BaseStatus()
+	if err == nil {
+		m.baseStatus = status
+	}
+	if m.baseStatus == nil && m.focus == focusBase {
+		m.focus = focusWorkspaces
+	}
+	return m
+}
+
 func (m Model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "enter":
@@ -473,6 +595,34 @@ func (m Model) updateConfirmBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "esc":
 		m.mode = ""
 		m.status = "build canceled"
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m Model) updateConfirmBaseBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		m.mode = ""
+		if m.actions == nil {
+			m.status = "base build failed: no actions configured"
+			return m, nil
+		}
+		result, err := m.actions.BuildBase()
+		if err != nil {
+			m.status = "base build failed: " + err.Error()
+			return m, nil
+		}
+		if result == "" && m.baseStatus != nil {
+			result = m.baseStatus.Config.Image
+		}
+		m.status = "base build ok: " + result
+		m = m.refreshBaseStatusQuiet()
+	case "n", "esc":
+		m.mode = ""
+		m.status = "base build canceled"
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
@@ -531,6 +681,15 @@ func (m Model) confirmBuild() Model {
 	return m
 }
 
+func (m Model) confirmBaseBuild() Model {
+	if m.baseStatus == nil || strings.TrimSpace(m.baseStatus.Config.Image) == "" {
+		m.status = "base build failed: no base image configured"
+		return m
+	}
+	m.mode = "confirm-base-build"
+	return m
+}
+
 func (m Model) confirmDownView() string {
 	item, ok := m.selectedWorkspace()
 	if !ok {
@@ -583,6 +742,32 @@ func (m Model) confirmBuildView() string {
 		return overlayModal(base.View(), borderedBlock("Confirm", message, modalWidth, 5), m.width, m.height)
 	}
 	return base.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 5), "\n")
+}
+
+func (m Model) confirmBaseBuildView() string {
+	if m.baseStatus == nil || strings.TrimSpace(m.baseStatus.Config.Image) == "" {
+		base := m
+		base.mode = ""
+		return base.View()
+	}
+	baseModel := m
+	baseModel.mode = ""
+	message := []string{
+		fmt.Sprintf("Build base image %s?", m.baseStatus.Config.Image),
+		"",
+		"y confirm   n cancel   esc cancel",
+	}
+	modalWidth := 56
+	if m.hasWindowSize() {
+		if modalWidth > m.width-4 {
+			modalWidth = m.width - 4
+		}
+		if modalWidth < 24 {
+			modalWidth = 24
+		}
+		return overlayModal(baseModel.View(), borderedBlock("Confirm", message, modalWidth, 5), m.width, m.height)
+	}
+	return baseModel.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 5), "\n")
 }
 
 func (m Model) requestShellAndQuit() Model {
@@ -991,9 +1176,10 @@ func (m Model) helpView() string {
 		"d definition",
 		"c compose",
 		"f Dockerfile",
-		"r refresh",
+		"tab focus workspaces/base",
+		"r refresh focused",
 		"t start",
-		"b build (confirm)",
+		"b build focused (confirm)",
 		"u up",
 		"ctrl+d stop/down",
 		"/ filter",
@@ -1016,9 +1202,10 @@ func (m Model) commandsView() string {
 		"definition",
 		"compose",
 		"Dockerfile",
-		"refresh",
+		"focus",
+		"refresh focused",
 		"start",
-		"build",
+		"build focused",
 		"up",
 		"ctrl+d stop/down",
 		"prepare",
@@ -1107,11 +1294,11 @@ func RunWithReports(workspaces []workspace.LocatedDefinition, reports []doctor.R
 }
 
 func RunWithReportsResult(workspaces []workspace.LocatedDefinition, reports []doctor.Report, actions Actions) (Model, error) {
-	model, err := tea.NewProgram(Model{
-		workspaces: workspaces,
-		reports:    reports,
-		actions:    actions,
-	}, tea.WithAltScreen()).Run()
+	return RunWithReportsAndBaseStatusResult(workspaces, reports, nil, actions)
+}
+
+func RunWithReportsAndBaseStatusResult(workspaces []workspace.LocatedDefinition, reports []doctor.Report, baseStatus *base.Status, actions Actions) (Model, error) {
+	model, err := tea.NewProgram(NewModelWithWorkspacesReportsAndBaseStatus(workspaces, reports, baseStatus, actions), tea.WithAltScreen()).Run()
 	if err != nil {
 		return Model{}, err
 	}

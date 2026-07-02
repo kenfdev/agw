@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/prepare"
@@ -60,7 +61,8 @@ var runWorkspaceTUI = func(cmd *cobra.Command, configPath string) error {
 		report, _ := actions.Refresh(item)
 		reports = append(reports, report)
 	}
-	finalModel, err := tui.RunWithReportsResult(items, reports, actions)
+	baseStatus, _ := actions.BaseStatus()
+	finalModel, err := tui.RunWithReportsAndBaseStatusResult(items, reports, baseStatus, actions)
 	if err != nil {
 		return fmt.Errorf("tui failed: %w", err)
 	}
@@ -104,6 +106,24 @@ func (a *tuiActions) Status(item workspace.LocatedDefinition) (string, error) {
 
 func (a *tuiActions) Build(item workspace.LocatedDefinition) (string, error) {
 	return "", newLifecycleRunner(a.out, a.err).Build(filepath.Dir(item.Path))
+}
+
+func (a *tuiActions) BaseStatus() (*base.Status, error) {
+	return configuredBaseStatus(a.configPath, newLifecycleRunner(io.Discard, io.Discard))
+}
+
+func (a *tuiActions) BuildBase() (string, error) {
+	if err := buildConfiguredBaseImage(a.configPath, newLifecycleRunner(a.out, a.err)); err != nil {
+		return "", err
+	}
+	status, err := a.BaseStatus()
+	if err != nil {
+		return "", err
+	}
+	if status == nil {
+		return "", nil
+	}
+	return status.Config.Image, nil
 }
 
 func (a *tuiActions) Start(item workspace.LocatedDefinition) (string, error) {
@@ -171,9 +191,7 @@ func (a *tuiActions) Prepare(item workspace.LocatedDefinition) (string, error) {
 
 func (a *tuiActions) Refresh(item workspace.LocatedDefinition) (doctor.Report, error) {
 	runner := newLifecycleRunner(io.Discard, io.Discard)
-	report := doctor.Diagnose(item, runner)
-	addBaseStatusToReport(&report, a.configPath, runner)
-	return report, nil
+	return doctor.Diagnose(item, runner), nil
 }
 
 func (a *tuiActions) OpenPath(path string) (string, error) {

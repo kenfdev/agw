@@ -4,8 +4,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
 )
@@ -100,6 +102,92 @@ func TestModelConfirmsBuildActionForSelectedWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(model.View(), "build ok: built second") {
 		t.Fatalf("view missing action status:\n%s", model.View())
+	}
+}
+
+func TestModelShowsBaseImageInTopBar(t *testing.T) {
+	model := NewModelWithReportsAndBaseStatus(
+		[]doctor.Report{{WorkspaceID: "agw", State: doctor.StateRunning}},
+		baseStatus("agw-base:latest", base.StatusAvailable, "3h"),
+		nil,
+	)
+
+	view := model.View()
+	for _, want := range []string{"Base: agw-base:latest available 3h", "focus:workspaces"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestModelTabFocusesBaseWhenConfigured(t *testing.T) {
+	model := NewModelWithReportsAndBaseStatus(
+		[]doctor.Report{{WorkspaceID: "agw", State: doctor.StateRunning}},
+		baseStatus("agw-base:latest", base.StatusAvailable, "3h"),
+		nil,
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(Model)
+	view := model.View()
+	for _, want := range []string{"[Base: agw-base:latest available 3h]", "focus:base", "Base image:  agw-base:latest", "Context:"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestModelTabSkipsBaseWhenNotConfigured(t *testing.T) {
+	model := NewModelWithReports([]doctor.Report{{WorkspaceID: "agw", State: doctor.StateRunning}}, nil)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(Model)
+	view := model.View()
+	if strings.Contains(view, "focus:base") || strings.Contains(view, "Base:") {
+		t.Fatalf("tab should not focus missing base:\n%s", view)
+	}
+}
+
+func TestModelConfirmsBaseBuildWhenBaseFocused(t *testing.T) {
+	actions := &fakeActions{buildBaseResult: "built base"}
+	model := NewModelWithReportsAndBaseStatus(
+		[]doctor.Report{{WorkspaceID: "agw", State: doctor.StateRunning}},
+		baseStatus("agw-base:latest", base.StatusMissing, ""),
+		actions,
+	)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+	if actions.buildBaseCalls != 0 {
+		t.Fatalf("base build ran before confirmation")
+	}
+	if !strings.Contains(model.View(), "Build base image agw-base:latest?") {
+		t.Fatalf("view missing base build confirmation:\n%s", model.View())
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	model = updated.(Model)
+	if actions.buildBaseCalls != 1 {
+		t.Fatalf("base build calls = %d", actions.buildBaseCalls)
+	}
+	if !strings.Contains(model.View(), "base build ok: built base") {
+		t.Fatalf("view missing base build result:\n%s", model.View())
+	}
+}
+
+func baseStatus(image string, status base.ImageStatus, age string) *base.Status {
+	created := time.Date(2026, 7, 2, 10, 15, 0, 0, time.UTC)
+	return &base.Status{
+		Config: base.Config{
+			Image:      image,
+			ContextDir: "/agw/base",
+			Dockerfile: "/agw/base/Dockerfile",
+		},
+		Status:    status,
+		CreatedAt: &created,
+		Age:       age,
 	}
 }
 
@@ -237,20 +325,24 @@ func TestModelShowsActionResultMessage(t *testing.T) {
 }
 
 type fakeActions struct {
-	buildWorkspace string
-	buildResult    string
-	startWorkspace string
-	startResult    string
-	prepareResult  string
-	logsResult     string
-	refreshReport  doctor.Report
-	refreshCalls   int
-	lastRefresh    workspace.LocatedDefinition
-	statusErr      error
-	shellErr       error
-	shellCalls     int
-	openPath       string
-	copiedText     string
+	buildWorkspace  string
+	buildResult     string
+	startWorkspace  string
+	startResult     string
+	prepareResult   string
+	logsResult      string
+	refreshReport   doctor.Report
+	refreshCalls    int
+	lastRefresh     workspace.LocatedDefinition
+	statusErr       error
+	shellErr        error
+	shellCalls      int
+	openPath        string
+	copiedText      string
+	buildBaseCalls  int
+	buildBaseResult string
+	baseStatus      *base.Status
+	baseStatusCalls int
 }
 
 func (a *fakeActions) Status(workspace.LocatedDefinition) (string, error) {
@@ -259,6 +351,14 @@ func (a *fakeActions) Status(workspace.LocatedDefinition) (string, error) {
 func (a *fakeActions) Build(item workspace.LocatedDefinition) (string, error) {
 	a.buildWorkspace = item.Definition.ID
 	return a.buildResult, nil
+}
+func (a *fakeActions) BaseStatus() (*base.Status, error) {
+	a.baseStatusCalls++
+	return a.baseStatus, nil
+}
+func (a *fakeActions) BuildBase() (string, error) {
+	a.buildBaseCalls++
+	return a.buildBaseResult, nil
 }
 func (a *fakeActions) Start(item workspace.LocatedDefinition) (string, error) {
 	a.startWorkspace = item.Definition.ID
@@ -412,13 +512,13 @@ func TestModelXDoesNotConfirmDown(t *testing.T) {
 	}
 }
 
-func TestModelTabCyclesDetailsView(t *testing.T) {
+func TestModelTabDoesNotFocusBaseWhenBaseIsUnavailable(t *testing.T) {
 	model := NewModel([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}})
 
 	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyTab})
 	view := updated.(Model).View()
-	if !strings.Contains(view, "Details") {
-		t.Fatalf("tab view missing details:\n%s", view)
+	if strings.Contains(view, "focus:base") {
+		t.Fatalf("tab should not focus base when unavailable:\n%s", view)
 	}
 }
 

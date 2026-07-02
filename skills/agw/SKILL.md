@@ -84,8 +84,10 @@ agw stop <workspace>
 
 In `agw`, press `t` to start the selected workspace in daemon mode using
 the same readiness checks and `lifecycle.start` handling as `agw start -d`.
-Press `b` to open a confirmation prompt before building the selected workspace;
-press `y` in that prompt to run the build.
+Press `tab` to move focus between workspaces and the configured base image
+summary when a base image exists. Press `b` to open a confirmation prompt
+before building the focused workspace or base image; press `y` in that prompt
+to run the build.
 
 If a reusable base environment image is configured under `baseEnvironment`,
 use `agw base status` to inspect whether it exists and how old Docker reports

@@ -296,3 +296,5 @@ agw --config "$AGW_TEST_CONFIG"
 ```
 
 Inside the TUI, press `t` to start the selected workspace without attaching.
+When a base image is configured, press `tab` to focus the base image summary;
+press `b` to build the focused workspace or base image after confirmation.

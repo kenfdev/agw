@@ -33,18 +33,7 @@ func newBaseBuildCommand() *cobra.Command {
 		Short: "Build the configured AGW base environment image",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfigForPath(configPath)
-			if err != nil {
-				return err
-			}
-			baseCfg, err := base.Resolve(cfg)
-			if err != nil {
-				return err
-			}
-			if _, err := os.Stat(baseCfg.Dockerfile); err != nil {
-				return fmt.Errorf("base environment Dockerfile %s: %w", baseCfg.Dockerfile, err)
-			}
-			return newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr()).BuildImage(baseCfg.ContextDir, baseCfg.Dockerfile, baseCfg.Image)
+			return buildConfiguredBaseImage(configPath, newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr()))
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -58,16 +47,14 @@ func newBaseStatusCommand() *cobra.Command {
 		Short: "Show the configured AGW base environment image status",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfigForPath(configPath)
+			status, err := configuredBaseStatus(configPath, newLifecycleRunner(io.Discard, io.Discard))
 			if err != nil {
 				return err
 			}
-			baseCfg, err := base.Resolve(cfg)
-			if err != nil {
-				return err
+			if status == nil {
+				return fmt.Errorf("baseEnvironment.image is not configured")
 			}
-			status := inspectBaseImage(baseCfg, newLifecycleRunner(io.Discard, io.Discard), now())
-			return writeBaseStatus(cmd.OutOrStdout(), status)
+			return writeBaseStatus(cmd.OutOrStdout(), *status)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
@@ -84,6 +71,38 @@ func loadConfigForPath(configPath string) (config.Config, error) {
 		}
 	}
 	return config.Load(path)
+}
+
+func buildConfiguredBaseImage(configPath string, runner baseRunner) error {
+	cfg, err := loadConfigForPath(configPath)
+	if err != nil {
+		return err
+	}
+	baseCfg, err := base.Resolve(cfg)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(baseCfg.Dockerfile); err != nil {
+		return fmt.Errorf("base environment Dockerfile %s: %w", baseCfg.Dockerfile, err)
+	}
+	return runner.BuildImage(baseCfg.ContextDir, baseCfg.Dockerfile, baseCfg.Image)
+}
+
+func configuredBaseStatus(configPath string, runner baseRunner) (*base.Status, error) {
+	cfg, err := loadConfigForPath(configPath)
+	if err != nil {
+		return nil, err
+	}
+	baseCfg, ok, err := base.Optional(cfg)
+	if err != nil {
+		status := base.Status{Status: base.StatusUnknown, Error: err.Error()}
+		return &status, nil
+	}
+	if !ok {
+		return nil, nil
+	}
+	status := inspectBaseImage(baseCfg, runner, now())
+	return &status, nil
 }
 
 func inspectBaseImage(baseCfg base.Config, runner baseRunner, current time.Time) base.Status {
