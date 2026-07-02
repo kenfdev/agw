@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kenfdev/agw/internal/workspace"
+	"github.com/spf13/cobra"
 )
 
 func TestTUIActionsPrepareRendersPromptWithoutWritingWorkspacePromptFile(t *testing.T) {
@@ -92,6 +93,13 @@ func TestTUIActionsRefreshDoesNotWriteLifecycleNoiseToTUIOutput(t *testing.T) {
 }
 
 func TestRootCommandShowsHelp(t *testing.T) {
+	oldRun := runWorkspaceTUI
+	defer func() { runWorkspaceTUI = oldRun }()
+	runWorkspaceTUI = func(cmd *cobra.Command, configPath string) error {
+		t.Fatal("help should not run TUI")
+		return nil
+	}
+
 	cmd := NewRootCommand("test")
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -106,5 +114,50 @@ func TestRootCommandShowsHelp(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("external Docker CLI")) {
 		t.Fatalf("help output did not describe Docker boundary: %s", out.String())
+	}
+	if bytes.Contains(out.Bytes(), []byte("tui")) {
+		t.Fatalf("help output should not expose tui subcommand:\n%s", out.String())
+	}
+}
+
+func TestRootCommandRunsTUIByDefault(t *testing.T) {
+	oldRun := runWorkspaceTUI
+	defer func() { runWorkspaceTUI = oldRun }()
+
+	var called bool
+	runWorkspaceTUI = func(cmd *cobra.Command, configPath string) error {
+		called = true
+		if configPath != "" {
+			t.Fatalf("config path = %q, want empty", configPath)
+		}
+		return nil
+	}
+
+	cmd := NewRootCommand("test")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs(nil)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !called {
+		t.Fatal("root command did not run TUI")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("root command wrote unexpected output:\n%s", out.String())
+	}
+}
+
+func TestRootCommandRejectsRemovedTUISubcommand(t *testing.T) {
+	cmd := NewRootCommand("test")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"tui"})
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("Execute() error = nil, want unknown command")
 	}
 }

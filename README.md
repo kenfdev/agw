@@ -265,7 +265,7 @@ agw workspace prepare agw --agent-json --config "$AGW_TEST_CONFIG"
 The state-first TUI shows the same model:
 
 ```bash
-agw tui --config "$AGW_TEST_CONFIG"
+agw --config "$AGW_TEST_CONFIG"
 ```
 
 Inside the TUI, press `t` to start the selected workspace without attaching.

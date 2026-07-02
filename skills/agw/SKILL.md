@@ -81,7 +81,7 @@ agw start <workspace>
 agw stop <workspace>
 ```
 
-In `agw tui`, press `t` to start the selected workspace in daemon mode using
+In `agw`, press `t` to start the selected workspace in daemon mode using
 the same readiness checks and `lifecycle.start` handling as `agw start -d`.
 
 If a workspace `agw.yaml` contains `lifecycle.start`, `agw start` runs that

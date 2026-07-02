@@ -18,6 +18,7 @@ import (
 )
 
 func NewRootCommand(version string) *cobra.Command {
+	var configPath string
 	cmd := &cobra.Command{
 		Use:           "agw",
 		Short:         "Agent Workspace",
@@ -25,7 +26,11 @@ func NewRootCommand(version string) *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceTUI(cmd, configPath)
+		},
 	}
+	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
 	cmd.AddCommand(NewConfigCommand())
 	cmd.AddCommand(NewWorkspaceCommand())
 	cmd.AddCommand(
@@ -38,40 +43,30 @@ func NewRootCommand(version string) *cobra.Command {
 		newLifecycleAttachCommand(),
 		newLifecycleStatusCommand(),
 		newLifecycleListCommand(),
-		newTUICommand(),
 	)
 	return cmd
 }
 
-func newTUICommand() *cobra.Command {
-	var configPath string
-	cmd := &cobra.Command{
-		Use:   "tui",
-		Short: "Open minimal workspace TUI",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			items, err := listDefinitions(configPath)
-			if err != nil {
-				return err
-			}
-			actions := &tuiActions{out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
-			reports := make([]doctor.Report, 0, len(items))
-			for _, item := range items {
-				report, _ := actions.Refresh(item)
-				reports = append(reports, report)
-			}
-			finalModel, err := tui.RunWithReportsResult(items, reports, actions)
-			if err != nil {
-				return fmt.Errorf("tui failed: %w", err)
-			}
-			if item, ok := finalModel.RequestedShellWorkspace(); ok {
-				_, err := actions.OpenShell(item)
-				return err
-			}
-			return nil
-		},
+var runWorkspaceTUI = func(cmd *cobra.Command, configPath string) error {
+	items, err := listDefinitions(configPath)
+	if err != nil {
+		return err
 	}
-	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
-	return cmd
+	actions := &tuiActions{out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
+	reports := make([]doctor.Report, 0, len(items))
+	for _, item := range items {
+		report, _ := actions.Refresh(item)
+		reports = append(reports, report)
+	}
+	finalModel, err := tui.RunWithReportsResult(items, reports, actions)
+	if err != nil {
+		return fmt.Errorf("tui failed: %w", err)
+	}
+	if item, ok := finalModel.RequestedShellWorkspace(); ok {
+		_, err := actions.OpenShell(item)
+		return err
+	}
+	return nil
 }
 
 type tuiActions struct {
