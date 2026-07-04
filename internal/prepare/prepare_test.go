@@ -31,6 +31,30 @@ func TestRenderPromptContainsConstraintsAndFiles(t *testing.T) {
 	}
 }
 
+func TestRenderPromptMarksTruncatedProjectFiles(t *testing.T) {
+	out, err := Render(Input{
+		Definition: workspace.Definition{
+			ID: "agw", Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+			Projects: []workspace.Project{{Name: "agw", HostPath: "/src/agw", ContainerPath: "/workspace"}},
+		},
+		Projects: []scanner.ProjectSnapshot{{
+			Project: workspace.Project{Name: "agw", HostPath: "/src/agw", ContainerPath: "/workspace"},
+			Files: []scanner.FileSnapshot{{
+				Path:          "package-lock.json",
+				Content:       "0123456789",
+				Truncated:     true,
+				OriginalBytes: 100,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Snapshot truncated: included 10 of 100 bytes.") {
+		t.Fatalf("prompt missing truncation note:\n%s", out)
+	}
+}
+
 func TestRenderPromptNoNetworkCandidates(t *testing.T) {
 	out, err := Render(Input{
 		Definition: workspace.Definition{

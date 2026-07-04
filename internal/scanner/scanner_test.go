@@ -50,6 +50,28 @@ func TestScanProjectRejectsMissingProjectPath(t *testing.T) {
 	}
 }
 
+func TestScanProjectTruncatesOversizedCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	content := strings.Repeat("x", maxSnapshotBytes+37)
+	mustWrite(t, filepath.Join(dir, "package-lock.json"), content)
+
+	snap, err := ScanProject(workspace.Project{Name: "web", HostPath: dir, ContainerPath: "/workspace/web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	file := findFile(t, snap.Files, "package-lock.json")
+	if !file.Truncated {
+		t.Fatalf("Truncated = false, want true")
+	}
+	if file.OriginalBytes != int64(len(content)) {
+		t.Fatalf("OriginalBytes = %d, want %d", file.OriginalBytes, len(content))
+	}
+	if len(file.Content) != maxSnapshotBytes {
+		t.Fatalf("content bytes = %d, want %d", len(file.Content), maxSnapshotBytes)
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -67,4 +89,15 @@ func hasFile(files []FileSnapshot, name string) bool {
 		}
 	}
 	return false
+}
+
+func findFile(t *testing.T, files []FileSnapshot, name string) FileSnapshot {
+	t.Helper()
+	for _, f := range files {
+		if f.Path == name {
+			return f
+		}
+	}
+	t.Fatalf("missing %s: %#v", name, files)
+	return FileSnapshot{}
 }

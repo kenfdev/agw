@@ -110,7 +110,11 @@ func Render(input Input) (string, error) {
 	for _, project := range input.Projects {
 		fmt.Fprintf(&b, "\n### %s\n", project.Project.Name)
 		for _, file := range project.Files {
-			fmt.Fprintf(&b, "\n#### `%s`\n\n```text\n%s\n```\n", file.Path, file.Content)
+			fmt.Fprintf(&b, "\n#### `%s`\n\n", file.Path)
+			if file.Truncated {
+				fmt.Fprintf(&b, "Snapshot truncated: included %d of %d bytes.\n\n", len([]byte(file.Content)), file.OriginalBytes)
+			}
+			fmt.Fprintf(&b, "```text\n%s\n```\n", file.Content)
 		}
 	}
 

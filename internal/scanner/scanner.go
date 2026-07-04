@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,9 +10,13 @@ import (
 	"github.com/kenfdev/agw/internal/workspace"
 )
 
+const maxSnapshotBytes = 64 * 1024
+
 type FileSnapshot struct {
-	Path    string
-	Content string
+	Path          string
+	Content       string
+	Truncated     bool
+	OriginalBytes int64
 }
 
 type ProjectSnapshot struct {
@@ -65,13 +70,37 @@ func ScanProject(project workspace.Project) (ProjectSnapshot, error) {
 		if info.IsDir() {
 			continue
 		}
-		b, err := os.ReadFile(full)
+		content, truncated, err := readSnapshotFile(full, info.Size())
 		if err != nil {
 			return ProjectSnapshot{}, err
 		}
-		files = append(files, FileSnapshot{Path: filepath.ToSlash(rel), Content: string(b)})
+		files = append(files, FileSnapshot{
+			Path:          filepath.ToSlash(rel),
+			Content:       content,
+			Truncated:     truncated,
+			OriginalBytes: info.Size(),
+		})
 	}
 	return ProjectSnapshot{Project: project, Files: files}, nil
+}
+
+func readSnapshotFile(path string, size int64) (string, bool, error) {
+	if size <= maxSnapshotBytes {
+		b, err := os.ReadFile(path)
+		return string(b), false, err
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+
+	b, err := io.ReadAll(io.LimitReader(f, maxSnapshotBytes))
+	if err != nil {
+		return "", false, err
+	}
+	return string(b), true, nil
 }
 
 func isAllowedCandidate(path string) bool {
