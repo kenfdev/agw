@@ -18,6 +18,24 @@ func HasVolumeMount(volumes []string, source, target string) bool {
 	return false
 }
 
+func VolumeTargets(volumes []string, source string) []string {
+	source = normalizeSource(source)
+	var targets []string
+	seen := map[string]struct{}{}
+	for _, volume := range volumes {
+		parts := strings.Split(volume, ":")
+		if len(parts) < 2 || normalizeSource(parts[0]) != source {
+			continue
+		}
+		if _, ok := seen[parts[1]]; ok {
+			continue
+		}
+		seen[parts[1]] = struct{}{}
+		targets = append(targets, parts[1])
+	}
+	return targets
+}
+
 func normalizeSource(source string) string {
 	source = strings.TrimSpace(os.ExpandEnv(source))
 	if source == "~" {

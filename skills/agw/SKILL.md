@@ -122,6 +122,17 @@ projects:
       stop: docker compose down
 ```
 
+Compose-first workspace definitions may omit `projects[].containerPath` and
+`networks.attach` when `compose.yaml` already declares the sidecar service
+volumes and external networks. In that mode, treat Compose as the source of
+truth for container runtime shape: `doctor` and `workspace apply` infer project
+container paths from service volume mounts that match `projects[].hostPath`,
+and `doctor` checks external networks attached to the sidecar service.
+`compose.service` is accepted as the sidecar service name; existing
+`container.service` remains supported for generated/spec-first workspaces.
+Use explicit `containerPath` only when a project host path has multiple mounts
+or AGW must validate one exact container target.
+
 For an existing workspace that should be refreshed from changed global
 base-environment guidance, dotfiles guidance, tool defaults, or generated
 workspace files:
@@ -145,7 +156,7 @@ When generating Docker/Compose files from `workspace prepare --agent-json`:
 
 - Prefer the user's global base-environment guidance when present; do not silently omit mandatory personal tooling such as Tailscale or dotfiles.
 - When the agent JSON includes `baseEnvironment.image`, prefer `FROM <image>` as the workspace Dockerfile base. This is not mandatory; if the project needs an incompatible image, use the project-appropriate base and explain why in generated workspace documentation or comments.
-- Project bind mount sources in generated Compose may use absolute paths, `~/`, `$HOME`, or `${HOME}`; `workspace apply` and `doctor` expand and clean those sources when checking them against `projects.hostPath`.
+- Project bind mount sources in generated Compose may use absolute paths, `~/`, `$HOME`, or `${HOME}`; `workspace apply` and `doctor` expand and clean those sources when checking them against `projects.hostPath`. If `projects[].containerPath` is omitted, the service volume target matching `projects[].hostPath` is inferred from Compose.
 - For Ubuntu 24.04 based sidecars, use the existing `ubuntu` user unless there is a clear project reason to create another user. Do not unconditionally create UID/GID 1000 users; `ubuntu:24.04` already provides `ubuntu:1000`.
 - If Tailscale is installed through the user's tools feature, Compose must also run the Tailscale entrypoint and provide runtime requirements: `TS_AUTHKEY` or `TS_AUTH_KEY`, `/dev/net/tun`, `NET_ADMIN`, `MKNOD`, and persistent `/var/lib/tailscale` state.
 - Prefer a workspace-local `.env.1password` for Tailscale auth key references when the user's base guidance uses 1Password. Do not write real auth keys into generated files.

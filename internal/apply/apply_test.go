@@ -161,6 +161,18 @@ func TestApplyRejectsMissingProjectMount(t *testing.T) {
 	}
 }
 
+func TestApplyInfersProjectContainerPathFromComposeVolume(t *testing.T) {
+	ws := t.TempDir()
+	gen := t.TempDir()
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\n")
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{Name: "agw", HostPath: "/src/agw"}}}
+
+	if err := Apply(ws, def, gen, &fakeRunner{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApplyAcceptsVolumeOptions(t *testing.T) {
 	ws := t.TempDir()
 	gen := t.TempDir()
@@ -198,6 +210,22 @@ func TestApplyRejectsMissingExternalNetwork(t *testing.T) {
 	err := Apply(ws, def, gen, &fakeRunner{missingNetworks: map[string]bool{"acme_default": true}})
 	if err == nil || !strings.Contains(err.Error(), "external network acme_default not found") {
 		t.Fatalf("Apply() error = %v", err)
+	}
+}
+
+func TestApplyChecksComposeExternalNetworksWithoutSelection(t *testing.T) {
+	ws := t.TempDir()
+	gen := t.TempDir()
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\n    networks:\n      - app\nnetworks:\n  app:\n    external: true\n    name: acme_default\n")
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw"}}}
+	runner := &fakeRunner{}
+
+	if err := Apply(ws, def, gen, runner); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(runner.checkedNetworks, []string{"acme_default"}) {
+		t.Fatalf("checked networks = %#v", runner.checkedNetworks)
 	}
 }
 

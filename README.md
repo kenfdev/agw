@@ -135,22 +135,28 @@ agw up agw
 agw attach agw
 ```
 
-Workspace definitions separate host-side AGW files from paths inside the
-container:
+Workspace definitions name the AGW workspace and the target host projects.
+When `compose.yaml` already exists, Compose is the source of truth for the
+sidecar service shape: `doctor` and `workspace apply` infer project container
+paths from service volume mounts, and `doctor` checks external networks attached
+to the sidecar service.
 
 ```yaml
 id: agw
 name: AGW
 workspace:
   dir: workspaces/agw
-container:
+compose:
   service: dev
-  workdir: /workspace
 projects:
   - name: agw
     hostPath: /path/to/agw
-    containerPath: /workspace
 ```
+
+For generated/spec-first workspaces, `container.service`, `container.workdir`,
+`projects[].containerPath`, and `networks.attach` remain supported explicit
+fields. Use explicit `containerPath` only when the same host project is mounted
+more than once or when AGW should validate an exact target path.
 
 If starting the workspace needs a wrapper command, set `lifecycle.start`.
 `agw start` runs it from the workspace directory instead of the default
@@ -173,7 +179,6 @@ order:
 projects:
   - name: api
     hostPath: /path/to/api
-    containerPath: /workspace/api
     lifecycle:
       start: docker compose up -d
       stop: docker compose down

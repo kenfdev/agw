@@ -135,9 +135,8 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 	}
 
 	for _, project := range def.Projects {
-		if !mount.HasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
-			required := project.HostPath + ":" + project.ContainerPath
-			return fmt.Errorf("missing volume %s for project %s", required, project.Name)
+		if _, err := resolveProjectMount(service, project); err != nil {
+			return err
 		}
 	}
 
@@ -181,6 +180,26 @@ func validateCompose(workspaceDir string, def workspace.Definition, file compose
 		return fmt.Errorf("docker compose config: %w", err)
 	}
 	return nil
+}
+
+func resolveProjectMount(service compose.Service, project workspace.Project) (string, error) {
+	if project.ContainerPath != "" {
+		if mount.HasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
+			return project.ContainerPath, nil
+		}
+		required := project.HostPath + ":" + project.ContainerPath
+		return "", fmt.Errorf("missing volume %s for project %s", required, project.Name)
+	}
+
+	targets := mount.VolumeTargets(service.Volumes, project.HostPath)
+	switch len(targets) {
+	case 0:
+		return "", fmt.Errorf("missing volume for project %s host path %s", project.Name, project.HostPath)
+	case 1:
+		return targets[0], nil
+	default:
+		return "", fmt.Errorf("multiple volumes for project %s host path %s; set containerPath in agw.yaml", project.Name, project.HostPath)
+	}
 }
 
 func pathsOverlap(a, b string) bool {

@@ -101,16 +101,19 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	report.add("Dockerfile", dockerfileStatus, dockerfileDetail)
 
 	for _, project := range located.Definition.Projects {
-		if !mount.HasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
-			required := project.HostPath + ":" + project.ContainerPath
-			return fail(&report, "project mount", fmt.Sprintf("missing volume %s for project %s", required, project.Name), "run agw workspace apply", StateBroken)
+		containerPath, err := resolveProjectMount(service, project)
+		if err != nil {
+			return fail(&report, "project mount", err.Error(), "run agw workspace apply", StateBroken)
 		}
-		report.add("project mount", CheckPass, project.Name)
+		report.add("project mount", CheckPass, fmt.Sprintf("%s -> %s", project.Name, containerPath))
 	}
 
 	attachments := selectedNetworks(located.Definition)
 	if len(attachments) == 0 {
-		report.add("external networks", CheckPass, "none required")
+		attachments = composeExternalNetworkAttachments(composeFile, service)
+		if len(attachments) == 0 {
+			report.add("external networks", CheckPass, "none required")
+		}
 	}
 	for _, attachment := range attachments {
 		name := strings.TrimSpace(attachment.Name)
@@ -161,6 +164,26 @@ func Diagnose(located workspace.LocatedDefinition, runner Runner) Report {
 	report.State = StateNotRunning
 	report.NextAction = fmt.Sprintf("agw start %s", report.WorkspaceID)
 	return report
+}
+
+func resolveProjectMount(service compose.Service, project workspace.Project) (string, error) {
+	if project.ContainerPath != "" {
+		if mount.HasVolumeMount(service.Volumes, project.HostPath, project.ContainerPath) {
+			return project.ContainerPath, nil
+		}
+		required := project.HostPath + ":" + project.ContainerPath
+		return "", fmt.Errorf("missing volume %s for project %s", required, project.Name)
+	}
+
+	targets := mount.VolumeTargets(service.Volumes, project.HostPath)
+	switch len(targets) {
+	case 0:
+		return "", fmt.Errorf("missing volume for project %s host path %s", project.Name, project.HostPath)
+	case 1:
+		return targets[0], nil
+	default:
+		return "", fmt.Errorf("multiple volumes for project %s host path %s; set containerPath in agw.yaml", project.Name, project.HostPath)
+	}
 }
 
 func (r *Report) add(name string, status CheckStatus, detail string) {
@@ -248,6 +271,17 @@ func selectedNetworks(def workspace.Definition) []workspace.NetworkAttachment {
 		return nil
 	}
 	return def.Networks.Attach
+}
+
+func composeExternalNetworkAttachments(file compose.File, service compose.Service) []workspace.NetworkAttachment {
+	var attachments []workspace.NetworkAttachment
+	for key, network := range file.Networks {
+		if !network.External || !serviceHasNetworkAttachment(service, key, network) {
+			continue
+		}
+		attachments = append(attachments, workspace.NetworkAttachment{Name: composeNetworkName(key, network)})
+	}
+	return attachments
 }
 
 func findComposeNetwork(networks map[string]compose.Network, selected string) (string, compose.Network, bool) {

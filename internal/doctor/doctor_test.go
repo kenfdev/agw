@@ -216,6 +216,30 @@ func TestDiagnoseBrokenWhenMountMissing(t *testing.T) {
 	assertCheckDetail(t, report, "project mount", CheckFail, fmt.Sprintf("missing volume %s:/workspace for project agw", project))
 }
 
+func TestDiagnoseInfersProjectContainerPathFromComposeVolume(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf(
+		"services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n",
+		project,
+	))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{running: false})
+
+	if report.State == StateBroken {
+		t.Fatalf("State = %q, want non-broken report: %#v", report.State, report.Checks)
+	}
+	assertCheckDetail(t, report, "project mount", CheckPass, "agw -> /workspace")
+}
+
 func TestDiagnoseAcceptsHomeVariableInProjectMount(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -295,6 +319,27 @@ func TestDiagnoseStandaloneWorkspaceReportsNoExternalNetworksRequired(t *testing
 	report := Diagnose(located, fakeRunner{running: false})
 
 	assertCheckDetail(t, report, "external networks", CheckPass, "none required")
+}
+
+func TestDiagnoseChecksComposeExternalNetworksWithoutSelection(t *testing.T) {
+	_, project, ws := validWorkspaceDirs(t)
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(ws, "compose.yaml"), fmt.Sprintf("services:\n  dev:\n    build: .\n    volumes:\n      - %s:/workspace\n    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: target_default\n", project))
+	located := workspace.LocatedDefinition{
+		Definition: workspace.Definition{
+			ID:        "agw",
+			Container: workspace.Container{Service: "dev"},
+			Projects:  []workspace.Project{{Name: "agw", HostPath: project}},
+		},
+		Path: filepath.Join(ws, "agw.yaml"),
+	}
+
+	report := Diagnose(located, fakeRunner{networks: map[string]bool{"target_default": false}})
+
+	if report.State != StateBroken {
+		t.Fatalf("State = %q, want %q", report.State, StateBroken)
+	}
+	assertCheckDetail(t, report, "external network", CheckFail, "external network target_default not found")
 }
 
 func TestDiagnoseWarnsWhenNetworkInspectFails(t *testing.T) {

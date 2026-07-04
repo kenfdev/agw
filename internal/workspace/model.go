@@ -12,6 +12,7 @@ type Definition struct {
 	Name            string          `yaml:"name"`
 	Workspace       Workspace       `yaml:"workspace"`
 	Storage         Storage         `yaml:"storage,omitempty"`
+	Compose         Compose         `yaml:"compose,omitempty"`
 	Container       Container       `yaml:"container"`
 	BaseEnvironment BaseEnvironment `yaml:"baseEnvironment,omitempty"`
 	Lifecycle       Lifecycle       `yaml:"lifecycle,omitempty"`
@@ -25,6 +26,10 @@ type Workspace struct {
 
 type Storage struct {
 	Path string `yaml:"path,omitempty"`
+}
+
+type Compose struct {
+	Service string `yaml:"service,omitempty"`
 }
 
 type Container struct {
@@ -93,6 +98,9 @@ func SaveDefinition(path string, def Definition) error {
 func normalizeDefinition(def Definition) Definition {
 	if def.Workspace.Dir == "" {
 		def.Workspace.Dir = def.Storage.Path
+	}
+	if def.Container.Service == "" {
+		def.Container.Service = def.Compose.Service
 	}
 	if def.Container.Workdir == "" {
 		def.Container.Workdir = def.Container.WorkspaceRoot

@@ -116,6 +116,33 @@ projects:
 	}
 }
 
+func TestLoadDefinitionAcceptsComposeService(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agw.yaml")
+	content := []byte(`id: agw
+name: AGW
+workspace:
+    dir: workspaces/agw
+compose:
+    service: dev
+projects:
+    - name: agw
+      hostPath: /src/agw
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadDefinition(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Container.Service != "dev" {
+		t.Fatalf("Container.Service = %q, want %q", got.Container.Service, "dev")
+	}
+	if got.Compose.Service != "dev" {
+		t.Fatalf("Compose.Service = %q, want %q", got.Compose.Service, "dev")
+	}
+}
+
 func TestLoadSaveDefinitionPreservesBaseEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agw.yaml")
 	includeGlobal := false

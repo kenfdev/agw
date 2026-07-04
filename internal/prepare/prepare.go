@@ -41,6 +41,10 @@ func Render(input Input) (string, error) {
 
 	fmt.Fprintln(&b, "## Projects")
 	for _, p := range def.Projects {
+		if p.ContainerPath == "" {
+			fmt.Fprintf(&b, "- `%s`: host `%s`, container path inferred from compose volume\n", p.Name, p.HostPath)
+			continue
+		}
 		fmt.Fprintf(&b, "- `%s`: host `%s`, container `%s`\n", p.Name, p.HostPath, p.ContainerPath)
 	}
 
