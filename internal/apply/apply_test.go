@@ -148,6 +148,66 @@ func TestApplyValidationFailureLeavesWorkspaceUnchanged(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsDestinationDirectoryBeforeCopying(t *testing.T) {
+	ws := t.TempDir()
+	gen := t.TempDir()
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM alpine\n")
+	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\n")
+	if err := os.MkdirAll(filepath.Join(ws, "compose.yaml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(ws, "README.md"), "keep me\n")
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
+
+	err := Apply(ws, def, gen, &fakeRunner{})
+	if err == nil || !strings.Contains(err.Error(), "destination compose.yaml exists and is not a regular file") {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "Dockerfile")); !os.IsNotExist(err) {
+		t.Fatalf("Dockerfile was copied before destination preflight, stat err = %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(ws, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "keep me\n" {
+		t.Fatalf("README changed to %q", string(b))
+	}
+}
+
+func TestApplyRollsBackInstalledFilesWhenLaterInstallFails(t *testing.T) {
+	ws := t.TempDir()
+	gen := t.TempDir()
+	mustWrite(t, filepath.Join(ws, "Dockerfile"), "FROM old\n")
+	mustWrite(t, filepath.Join(gen, "Dockerfile"), "FROM new\n")
+	mustWrite(t, filepath.Join(gen, "compose.yaml"), "services:\n  dev:\n    build: .\n    volumes:\n      - /src/agw:/workspace\n")
+	def := workspace.Definition{Container: workspace.Container{Service: "dev"}, Projects: []workspace.Project{{HostPath: "/src/agw", ContainerPath: "/workspace"}}}
+
+	previousRenameFile := renameFile
+	t.Cleanup(func() { renameFile = previousRenameFile })
+	renameFile = func(oldpath, newpath string) error {
+		if filepath.Base(newpath) == "compose.yaml" {
+			return errors.New("install failed")
+		}
+		return previousRenameFile(oldpath, newpath)
+	}
+
+	err := Apply(ws, def, gen, &fakeRunner{})
+	if err == nil || !strings.Contains(err.Error(), "install failed") {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(ws, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "FROM old\n" {
+		t.Fatalf("Dockerfile = %q, want rollback to old content", string(b))
+	}
+	if _, err := os.Stat(filepath.Join(ws, "compose.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("compose.yaml exists after rollback, stat err = %v", err)
+	}
+}
+
 func TestApplyRejectsMissingProjectMount(t *testing.T) {
 	ws := t.TempDir()
 	gen := t.TempDir()

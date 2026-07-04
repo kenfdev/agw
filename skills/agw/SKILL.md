@@ -30,6 +30,7 @@ my workspace". The agent uses JSON and agent-oriented CLI output internally.
 - Do not auto-detect or manage target project services unless the user specifically asks or `projects[].lifecycle.start` / `projects[].lifecycle.stop` is explicitly configured.
 - Do not edit files inside target repositories as part of workspace preparation. AGW owns its workspace files.
 - Generate workspace files in a temporary directory outside the AGW workspace directory before `workspace apply`; `apply` rejects generated directories that overlap the workspace.
+- `workspace apply` preflights generated files and applies them transactionally; if applying generated files fails, treat the prior workspace files as the intended state and report the apply error.
 - If global config includes `baseEnvironment.image`, prefer that image as the workspace Dockerfile `FROM` by default, but treat it as a preference rather than a hard requirement when project constraints need another base.
 - Do not change Compose image names as a workaround for stale images. Diagnose stale containers/images, then rebuild or remove the old image intentionally.
 
