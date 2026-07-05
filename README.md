@@ -89,6 +89,7 @@ request:
 | Apply generated workspace files | `agw workspace apply <workspace> <generated-dir>` |
 | Diagnose current state | `agw doctor <workspace> --json` |
 | Start the workspace when ready | `agw start <workspace>` |
+| Restart, rebuild, or recreate containers | `agw restart <workspace> [--build] [--force-recreate]` |
 
 ## Release
 
@@ -130,8 +131,7 @@ agw workspace new --root /path/to/personal/agw-root --id agw --name AGW --worksp
 agw workspace prepare agw --agent-json
 # Write generated Dockerfile and compose.yaml to a temporary directory.
 agw workspace apply agw /path/to/temp-generated
-agw build agw
-agw up agw
+agw start agw
 agw attach agw
 ```
 
@@ -160,7 +160,7 @@ more than once or when AGW should validate an exact target path.
 
 If starting the workspace needs a wrapper command, set `lifecycle.start`.
 `agw start` runs it from the workspace directory instead of the default
-`docker compose up -d`, then keeps the normal attach behavior:
+`docker compose up -d`:
 
 ```yaml
 lifecycle:
@@ -170,7 +170,7 @@ lifecycle:
 If AGW should start or stop project-owned services around the sidecar
 lifecycle, set project lifecycle commands. `agw start` runs each
 `projects[].lifecycle.start` from that project's `hostPath` in project order
-after readiness checks and before starting or attaching to the AGW sidecar.
+after readiness checks and before starting the AGW sidecar.
 `agw stop` stops the AGW sidecar first, then runs each
 `projects[].lifecycle.stop` from the project `hostPath` in reverse project
 order:
@@ -301,5 +301,9 @@ agw --config "$AGW_TEST_CONFIG"
 ```
 
 Inside the TUI, press `t` to start the selected workspace without attaching.
+Press `R` to choose a confirmed restart mode: restart, force recreate, build,
+or build plus force recreate.
 When a base image is configured, press `tab` to focus the base image summary;
 press `b` to build the focused workspace or base image after confirmation.
+Start, restart, and build output is captured and rendered inside the TUI log
+area instead of streaming raw Docker output over the terminal layout.

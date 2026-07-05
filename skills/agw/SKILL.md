@@ -80,15 +80,26 @@ For an existing workspace lifecycle request, prefer:
 ```bash
 agw doctor <workspace> --json
 agw start <workspace>
+agw restart <workspace> [--build] [--force-recreate]
 agw stop <workspace>
 ```
 
-In `agw`, press `t` to start the selected workspace in daemon mode using
-the same readiness checks and `lifecycle.start` handling as `agw start -d`.
+`agw start <workspace>` starts the workspace without attaching. Use
+`agw attach <workspace>` only when the user explicitly wants an interactive
+shell in the sidecar. Use `agw restart <workspace>` to stop then start the
+workspace without attaching. Add `--build`, `--force-recreate`, or both when the
+user explicitly asks to rebuild or recreate containers.
+
+In `agw`, press `t` to start the selected workspace without attaching using
+the same readiness checks and `lifecycle.start` handling as `agw start`.
+Press `R` to open a confirmation prompt for restart, force recreate, build, or
+build plus force recreate.
 Press `tab` to move focus between workspaces and the configured base image
 summary when a base image exists. Press `b` to open a confirmation prompt
 before building the focused workspace or base image; press `y` in that prompt
-to run the build.
+to run the build. TUI start, restart, and build actions capture lifecycle
+output and show it in the TUI log area instead of streaming raw Docker output
+over the terminal layout.
 
 If a reusable base environment image is configured under `baseEnvironment`,
 use `agw base status` to inspect whether it exists and how old Docker reports
@@ -106,7 +117,7 @@ lifecycle:
 
 If projects have explicit lifecycle commands, `agw start` runs each
 `projects[].lifecycle.start` from that project's `hostPath` in project order
-after readiness checks and before starting or attaching to the AGW sidecar.
+after readiness checks and before starting the AGW sidecar.
 `agw start` fails immediately if a project start command fails. `agw stop`
 stops the AGW sidecar first, then runs each `projects[].lifecycle.stop` from
 the project `hostPath` in reverse project order. Project stop failures do not
@@ -146,8 +157,9 @@ agw workspace apply <workspace> <temp-generated-dir>
 ```
 
 After applying, explain whether a rebuild or restart is needed. Only run
-`agw start`, `agw stop`, `agw up`, `agw down`, or Docker lifecycle commands when
-the user asked for that lifecycle action or it is clearly required and low risk.
+`agw start`, `agw restart`, `agw stop`, `agw up`, `agw down`, or Docker
+lifecycle commands when the user asked for that lifecycle action or it is
+clearly required and low risk.
 
 Use `agw workspace network add <workspace> <network>` only after confirming that an external Docker network is intended.
 
@@ -166,6 +178,7 @@ When generating Docker/Compose files from `workspace prepare --agent-json`:
 - If project-owned Docker services should start or stop with AGW, set `projects[].lifecycle.start` and `projects[].lifecycle.stop` to exact one-line commands AGW should run from each project host path. Do not add these commands based only on detected Docker files without user intent.
 - Tailscale SSH authorization is controlled by tailnet policy, not container `authorized_keys`. If SSH fails with "tailnet policy does not permit", inspect `tailscale status --json`, node tags, requested login user, and the tailnet `ssh` ACL/grants.
 - If Docker reports an entrypoint or binary missing after Compose changes, suspect a stale image or unrecreated container first. Keep the image name stable, then rebuild with `docker compose up -d --build --force-recreate` or remove the old image/container deliberately.
+- If a workspace has `lifecycle.start`, do not use `agw start --build`, `agw start --force-recreate`, `agw restart --build`, or `agw restart --force-recreate`; AGW cannot inject Docker flags into a custom shell command. Ask the user to update the custom lifecycle command or run the needed Docker command directly.
 - Dotfiles cloned during image build need BuildKit SSH forwarding. If build fails with an empty SSH agent socket, ask the user to ensure `SSH_AUTH_SOCK` is set and `ssh-add -l` works in their terminal.
 
 ## Human Request Examples
@@ -184,7 +197,9 @@ Map user intent to CLI use without teaching users to run agent-oriented flags:
   the reported next action, and use command-specific help before unfamiliar
   operations.
 - "Start my workspace" -> diagnose first when state is unknown, then run configured
-  project lifecycle starts before starting or attaching to the AGW workspace sidecar.
+  project lifecycle starts before starting the AGW workspace sidecar.
+- "Restart my workspace and rebuild it" -> diagnose if state is unknown, then run
+  `agw restart <workspace> --build`.
 
 ## Error Handling
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/kenfdev/agw/internal/base"
+	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
 )
@@ -41,6 +42,7 @@ type Model struct {
 type Actions interface {
 	Status(workspace.LocatedDefinition) (string, error)
 	Start(workspace.LocatedDefinition) (string, error)
+	Restart(workspace.LocatedDefinition, docker.UpOptions) (string, error)
 	Build(workspace.LocatedDefinition) (string, error)
 	BaseStatus() (*base.Status, error)
 	BuildBase() (string, error)
@@ -110,6 +112,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == "confirm-build" {
 			return m.updateConfirmBuild(msg)
 		}
+		if m.mode == "confirm-restart" {
+			return m.updateConfirmRestart(msg)
+		}
 		if m.mode == "confirm-base-build" {
 			return m.updateConfirmBaseBuild(msg)
 		}
@@ -153,6 +158,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.runAction("start", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Start(item)
 			})
+		case "R":
+			m = m.confirmRestart()
 		case "b":
 			if m.focus == focusBase {
 				m = m.confirmBaseBuild()
@@ -217,6 +224,9 @@ func (m Model) View() string {
 	if m.mode == "confirm-build" {
 		return m.confirmBuildView()
 	}
+	if m.mode == "confirm-restart" {
+		return m.confirmRestartView()
+	}
 	if m.mode == "confirm-base-build" {
 		return m.confirmBaseBuildView()
 	}
@@ -255,12 +265,10 @@ func (m Model) View() string {
 		}
 	}
 	lines = append(lines, "", "Logs")
-	if m.status != "" {
-		lines = append(lines, "  "+m.status)
-	} else {
-		lines = append(lines, "  idle")
+	for _, line := range m.logLines() {
+		lines = append(lines, "  "+line)
 	}
-	lines = append(lines, "", "Keys  tab focus  ↑/↓/j/k move  enter details  t start  b build focused  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
+	lines = append(lines, "", "Keys  tab focus  ↑/↓/j/k move  enter details  t start  R restart  b build focused  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit")
 	return strings.Join(lines, "\n")
 }
 
@@ -292,7 +300,7 @@ func (m Model) fullscreenView() string {
 	lines = append(lines, borderedBlock(m.topBar(), m.workspaceLines(), m.width, listHeight)...)
 	lines = append(lines, borderedBlock("Details", m.detailsLines(), m.width, detailsHeight)...)
 	lines = append(lines, borderedBlock("Logs", m.logLines(), m.width, logHeight)...)
-	lines = append(lines, borderedBlock("Keys", []string{"tab focus  ↑/↓/j/k move  enter details  t start  b build focused  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
+	lines = append(lines, borderedBlock("Keys", []string{"tab focus  ↑/↓/j/k move  enter details  t start  R restart  b build focused  l logs  s shell  d describe  c compose  f Dockerfile  Y copy project path  ctrl+d stop  r refresh  / filter  ? help  q quit"}, m.width, footerHeight)...)
 	return strings.Join(fitLineCount(lines, m.height, m.width), "\n")
 }
 
@@ -348,7 +356,73 @@ func (m Model) logLines() []string {
 	if m.status == "" {
 		return []string{"idle"}
 	}
-	return []string{m.status}
+	return displayLines(m.status)
+}
+
+func displayLines(value string) []string {
+	value = sanitizeTerminalContent(value)
+	lines := strings.Split(value, "\n")
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func sanitizeTerminalContent(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+
+	var b strings.Builder
+	escapeState := ""
+	for _, r := range value {
+		switch escapeState {
+		case "start":
+			switch r {
+			case '[':
+				escapeState = "csi"
+			case ']':
+				escapeState = "osc"
+			default:
+				escapeState = ""
+			}
+			continue
+		case "csi":
+			if r >= 0x40 && r <= 0x7e {
+				escapeState = ""
+			}
+			continue
+		case "osc":
+			if r == '\a' {
+				escapeState = ""
+			} else if r == '\x1b' {
+				escapeState = "osc-st"
+			}
+			continue
+		case "osc-st":
+			if r == '\\' {
+				escapeState = ""
+			} else {
+				escapeState = "osc"
+			}
+			continue
+		}
+		if r == '\x1b' {
+			escapeState = "start"
+			continue
+		}
+		switch {
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			b.WriteRune(' ')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func emptyDefault(value, fallback string) string {
@@ -602,6 +676,30 @@ func (m Model) updateConfirmBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateConfirmRestart(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		m.mode = ""
+		m = m.restartWithOptions(docker.UpOptions{})
+	case "f":
+		m.mode = ""
+		m = m.restartWithOptions(docker.UpOptions{ForceRecreate: true})
+	case "b":
+		m.mode = ""
+		m = m.restartWithOptions(docker.UpOptions{Build: true})
+	case "a":
+		m.mode = ""
+		m = m.restartWithOptions(docker.UpOptions{Build: true, ForceRecreate: true})
+	case "n", "esc":
+		m.mode = ""
+		m.status = "restart canceled"
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m Model) updateConfirmBaseBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y":
@@ -681,6 +779,15 @@ func (m Model) confirmBuild() Model {
 	return m
 }
 
+func (m Model) confirmRestart() Model {
+	if _, ok := m.selectedWorkspace(); !ok {
+		m.status = "restart failed: no workspace selected"
+		return m
+	}
+	m.mode = "confirm-restart"
+	return m
+}
+
 func (m Model) confirmBaseBuild() Model {
 	if m.baseStatus == nil || strings.TrimSpace(m.baseStatus.Config.Image) == "" {
 		m.status = "base build failed: no base image configured"
@@ -744,6 +851,37 @@ func (m Model) confirmBuildView() string {
 	return base.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 5), "\n")
 }
 
+func (m Model) confirmRestartView() string {
+	item, ok := m.selectedWorkspace()
+	if !ok {
+		base := m
+		base.mode = ""
+		return base.View()
+	}
+	base := m
+	base.mode = ""
+	message := []string{
+		fmt.Sprintf("Restart workspace %s?", item.Definition.ID),
+		"",
+		"r restart",
+		"f force recreate",
+		"b build",
+		"a build + force recreate",
+		"esc cancel",
+	}
+	modalWidth := 56
+	if m.hasWindowSize() {
+		if modalWidth > m.width-4 {
+			modalWidth = m.width - 4
+		}
+		if modalWidth < 24 {
+			modalWidth = 24
+		}
+		return overlayModal(base.View(), borderedBlock("Confirm", message, modalWidth, 9), m.width, m.height)
+	}
+	return base.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 9), "\n")
+}
+
 func (m Model) confirmBaseBuildView() string {
 	if m.baseStatus == nil || strings.TrimSpace(m.baseStatus.Config.Image) == "" {
 		base := m
@@ -768,6 +906,12 @@ func (m Model) confirmBaseBuildView() string {
 		return overlayModal(baseModel.View(), borderedBlock("Confirm", message, modalWidth, 5), m.width, m.height)
 	}
 	return baseModel.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 5), "\n")
+}
+
+func (m Model) restartWithOptions(opts docker.UpOptions) Model {
+	return m.runAction("restart", func(item workspace.LocatedDefinition) (string, error) {
+		return m.actions.Restart(item, opts)
+	})
 }
 
 func (m Model) requestShellAndQuit() Model {

@@ -39,13 +39,12 @@ var newLifecycleRunner = func(stdout, stderr io.Writer) lifecycleRunner {
 
 func newLifecycleStartCommand() *cobra.Command {
 	var configPath string
-	var daemon bool
 	var build bool
 	var forceRecreate bool
 
 	cmd := &cobra.Command{
 		Use:   "start <workspace>",
-		Short: "Start the AGW workspace and attach to it",
+		Short: "Start the AGW workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			located, err := findLocatedDefinition(configPath, args[0])
@@ -53,17 +52,40 @@ func newLifecycleStartCommand() *cobra.Command {
 				return err
 			}
 			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
-			return startLocatedWorkspace(cmd.OutOrStdout(), located, runner, daemon, docker.UpOptions{Build: build, ForceRecreate: forceRecreate})
+			return startLocatedWorkspace(cmd.OutOrStdout(), located, runner, docker.UpOptions{Build: build, ForceRecreate: forceRecreate})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
-	cmd.Flags().BoolVarP(&daemon, "daemon", "d", false, "start without attaching")
 	cmd.Flags().BoolVar(&build, "build", false, "build images before starting")
 	cmd.Flags().BoolVar(&forceRecreate, "force-recreate", false, "recreate containers even if their configuration and image have not changed")
 	return cmd
 }
 
-func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, runner lifecycleRunner, daemon bool, upOptions docker.UpOptions) error {
+func newLifecycleRestartCommand() *cobra.Command {
+	var configPath string
+	var build bool
+	var forceRecreate bool
+
+	cmd := &cobra.Command{
+		Use:   "restart <workspace>",
+		Short: "Restart the AGW workspace",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			located, err := findLocatedDefinition(configPath, args[0])
+			if err != nil {
+				return err
+			}
+			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return restartLocatedWorkspace(cmd.OutOrStdout(), located, runner, docker.UpOptions{Build: build, ForceRecreate: forceRecreate})
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", "", "config file path")
+	cmd.Flags().BoolVar(&build, "build", false, "build images before starting")
+	cmd.Flags().BoolVar(&forceRecreate, "force-recreate", false, "recreate containers even if their configuration and image have not changed")
+	return cmd
+}
+
+func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, runner lifecycleRunner, upOptions docker.UpOptions) error {
 	service := strings.TrimSpace(located.Definition.Container.Service)
 	if service == "" {
 		return fmt.Errorf("workspace %q has no service configured", located.Definition.ID)
@@ -80,10 +102,7 @@ func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, r
 				return err
 			}
 		}
-		if daemon {
-			return nil
-		}
-		return runner.Attach(dir, service)
+		return nil
 	case doctor.StateNotRunning:
 		if err := runProjectLifecycleStartCommands(runner, located.Definition); err != nil {
 			return err
@@ -96,10 +115,7 @@ func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, r
 		if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
 			return err
 		}
-		if daemon {
-			return nil
-		}
-		return runner.Attach(dir, service)
+		return nil
 	default:
 		if err := writeDoctorReport(out, report); err != nil {
 			return err
@@ -108,8 +124,25 @@ func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, r
 	}
 }
 
+func restartLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, runner lifecycleRunner, upOptions docker.UpOptions) error {
+	if err := stopLocatedWorkspace(located, runner); err != nil {
+		return err
+	}
+	return startLocatedWorkspace(out, located, runner, upOptions)
+}
+
+func stopLocatedWorkspace(located workspace.LocatedDefinition, runner lifecycleRunner) error {
+	if err := runner.Stop(filepath.Dir(located.Path)); err != nil {
+		return err
+	}
+	return runProjectLifecycleStopCommands(runner, located.Definition)
+}
+
 func runLifecycleStartCommand(runner lifecycleRunner, def workspace.Definition, dir string, opts docker.UpOptions) error {
 	if command := strings.TrimSpace(def.Lifecycle.Start); command != "" {
+		if opts.Build || opts.ForceRecreate {
+			return fmt.Errorf("cannot use --build or --force-recreate with lifecycle.start; update the custom start command instead")
+		}
 		return runner.RunShell(dir, command)
 	}
 	return runner.UpDetachedWithOptions(dir, opts)
@@ -156,10 +189,7 @@ func newLifecycleStopCommand() *cobra.Command {
 				return err
 			}
 			runner := newLifecycleRunner(cmd.OutOrStdout(), cmd.ErrOrStderr())
-			if err := runner.Stop(filepath.Dir(located.Path)); err != nil {
-				return err
-			}
-			return runProjectLifecycleStopCommands(runner, located.Definition)
+			return stopLocatedWorkspace(located, runner)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "config file path")

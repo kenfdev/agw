@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/kenfdev/agw/internal/base"
 	"github.com/kenfdev/agw/internal/docker"
@@ -38,6 +40,7 @@ func NewRootCommand(version string) *cobra.Command {
 	cmd.AddCommand(NewWorkspaceCommand())
 	cmd.AddCommand(
 		newLifecycleStartCommand(),
+		newLifecycleRestartCommand(),
 		newLifecycleStopCommand(),
 		newDoctorCommand(),
 		newLifecycleBuildCommand(),
@@ -105,7 +108,9 @@ func (a *tuiActions) Status(item workspace.LocatedDefinition) (string, error) {
 }
 
 func (a *tuiActions) Build(item workspace.LocatedDefinition) (string, error) {
-	return "", newLifecycleRunner(a.out, a.err).Build(filepath.Dir(item.Path))
+	runner, output := newCapturedLifecycleRunner()
+	err := runner.Build(filepath.Dir(item.Path))
+	return lifecycleActionResult(item.Definition.ID, output.String()), lifecycleActionError(err, output.String())
 }
 
 func (a *tuiActions) BaseStatus() (*base.Status, error) {
@@ -113,33 +118,46 @@ func (a *tuiActions) BaseStatus() (*base.Status, error) {
 }
 
 func (a *tuiActions) BuildBase() (string, error) {
-	if err := buildConfiguredBaseImage(a.configPath, newLifecycleRunner(a.out, a.err)); err != nil {
-		return "", err
+	runner, output := newCapturedLifecycleRunner()
+	if err := buildConfiguredBaseImage(a.configPath, runner); err != nil {
+		return "", lifecycleActionError(err, output.String())
 	}
 	status, err := a.BaseStatus()
 	if err != nil {
 		return "", err
 	}
 	if status == nil {
-		return "", nil
+		return lifecycleActionResult("", output.String()), nil
 	}
-	return status.Config.Image, nil
+	return lifecycleActionResult(status.Config.Image, output.String()), nil
 }
 
 func (a *tuiActions) Start(item workspace.LocatedDefinition) (string, error) {
-	runner := newLifecycleRunner(a.out, a.err)
-	if err := startLocatedWorkspace(a.out, item, runner, true, docker.UpOptions{}); err != nil {
-		return "", err
+	runner, output := newCapturedLifecycleRunner()
+	if err := startLocatedWorkspace(output, item, runner, docker.UpOptions{}); err != nil {
+		return "", lifecycleActionError(err, output.String())
 	}
-	return item.Definition.ID, nil
+	return lifecycleActionResult(item.Definition.ID, output.String()), nil
+}
+
+func (a *tuiActions) Restart(item workspace.LocatedDefinition, opts docker.UpOptions) (string, error) {
+	runner, output := newCapturedLifecycleRunner()
+	if err := restartLocatedWorkspace(output, item, runner, opts); err != nil {
+		return "", lifecycleActionError(err, output.String())
+	}
+	return lifecycleActionResult(item.Definition.ID, output.String()), nil
 }
 
 func (a *tuiActions) Up(item workspace.LocatedDefinition) (string, error) {
-	return "", newLifecycleRunner(a.out, a.err).Up(filepath.Dir(item.Path))
+	runner, output := newCapturedLifecycleRunner()
+	err := runner.Up(filepath.Dir(item.Path))
+	return lifecycleActionResult(item.Definition.ID, output.String()), lifecycleActionError(err, output.String())
 }
 
 func (a *tuiActions) Down(item workspace.LocatedDefinition) (string, error) {
-	return "", newLifecycleRunner(a.out, a.err).Down(filepath.Dir(item.Path))
+	runner, output := newCapturedLifecycleRunner()
+	err := runner.Down(filepath.Dir(item.Path))
+	return lifecycleActionResult(item.Definition.ID, output.String()), lifecycleActionError(err, output.String())
 }
 
 func (a *tuiActions) Attach(item workspace.LocatedDefinition) (string, error) {
@@ -252,4 +270,48 @@ func (a *tuiActions) CopyText(text string) (string, error) {
 		return "", err
 	}
 	return text, nil
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func newCapturedLifecycleRunner() (lifecycleRunner, *lockedBuffer) {
+	output := &lockedBuffer{}
+	return newLifecycleRunner(output, output), output
+}
+
+func lifecycleActionResult(label, output string) string {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return label
+	}
+	if strings.TrimSpace(label) == "" {
+		return output
+	}
+	return label + "\n" + output
+}
+
+func lifecycleActionError(err error, output string) error {
+	if err == nil {
+		return nil
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return err
+	}
+	return fmt.Errorf("%w\n%s", err, output)
 }

@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kenfdev/agw/internal/base"
+	"github.com/kenfdev/agw/internal/docker"
 	"github.com/kenfdev/agw/internal/doctor"
 	"github.com/kenfdev/agw/internal/workspace"
 )
@@ -212,6 +213,61 @@ func TestModelStartsSelectedWorkspace(t *testing.T) {
 	}
 }
 
+func TestModelConfirmsRestartActionForSelectedWorkspace(t *testing.T) {
+	items := []workspace.LocatedDefinition{
+		{Definition: workspace.Definition{ID: "first"}},
+		{Definition: workspace.Definition{ID: "second"}},
+	}
+	actions := &fakeActions{restartResult: "restarted second"}
+	model := NewModelWithActions(items, actions)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	model = updated.(Model)
+	if actions.restartWorkspace != "" {
+		t.Fatalf("restart ran before confirmation for workspace %q", actions.restartWorkspace)
+	}
+	for _, want := range []string{"Restart workspace second?", "r restart", "f force recreate", "b build", "a build + force recreate"} {
+		if !strings.Contains(model.View(), want) {
+			t.Fatalf("view missing restart confirmation %q:\n%s", want, model.View())
+		}
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	model = updated.(Model)
+
+	if actions.restartWorkspace != "second" {
+		t.Fatalf("restart workspace = %q", actions.restartWorkspace)
+	}
+	if actions.restartOptions.Build {
+		t.Fatal("restart Build = true, want false")
+	}
+	if !actions.restartOptions.ForceRecreate {
+		t.Fatal("restart ForceRecreate = false, want true")
+	}
+	if !strings.Contains(model.View(), "restart ok: restarted second") {
+		t.Fatalf("view missing restart status:\n%s", model.View())
+	}
+}
+
+func TestModelRestartDialogMapsBuildAndForceRecreateOption(t *testing.T) {
+	actions := &fakeActions{restartResult: "restarted agw"}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	model = updated.(Model)
+
+	if !actions.restartOptions.Build {
+		t.Fatal("restart Build = false, want true")
+	}
+	if !actions.restartOptions.ForceRecreate {
+		t.Fatal("restart ForceRecreate = false, want true")
+	}
+}
+
 func TestModelMovesSelectionWithVimKeys(t *testing.T) {
 	items := []workspace.LocatedDefinition{
 		{Definition: workspace.Definition{ID: "first"}},
@@ -324,25 +380,52 @@ func TestModelShowsActionResultMessage(t *testing.T) {
 	}
 }
 
+func TestModelRendersMultilineActionOutputInsideLogPanel(t *testing.T) {
+	actions := &fakeActions{prepareResult: "agw\n\x1b[31mlifecycle stdout\x1b[0m\r\nlifecycle stderr"}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
+
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	model = updated.(Model)
+
+	view := model.View()
+	if strings.Contains(view, "\x1b") || strings.Contains(view, "\r") {
+		t.Fatalf("view contains raw terminal control bytes:\n%q", view)
+	}
+	if strings.Contains(view, "31m") || strings.Contains(view, "0m") {
+		t.Fatalf("view contains ANSI sequence fragments:\n%s", view)
+	}
+	if !strings.Contains(view, "prepare ok: agw") || !strings.Contains(view, "lifecycle stdout") {
+		t.Fatalf("view missing captured lifecycle output:\n%s", view)
+	}
+	if lines := strings.Split(view, "\n"); len(lines) != 20 {
+		t.Fatalf("line count = %d, want 20\n%s", len(lines), view)
+	}
+}
+
 type fakeActions struct {
-	buildWorkspace  string
-	buildResult     string
-	startWorkspace  string
-	startResult     string
-	prepareResult   string
-	logsResult      string
-	refreshReport   doctor.Report
-	refreshCalls    int
-	lastRefresh     workspace.LocatedDefinition
-	statusErr       error
-	shellErr        error
-	shellCalls      int
-	openPath        string
-	copiedText      string
-	buildBaseCalls  int
-	buildBaseResult string
-	baseStatus      *base.Status
-	baseStatusCalls int
+	buildWorkspace   string
+	buildResult      string
+	startWorkspace   string
+	startResult      string
+	restartWorkspace string
+	restartOptions   docker.UpOptions
+	restartResult    string
+	prepareResult    string
+	logsResult       string
+	refreshReport    doctor.Report
+	refreshCalls     int
+	lastRefresh      workspace.LocatedDefinition
+	statusErr        error
+	shellErr         error
+	shellCalls       int
+	openPath         string
+	copiedText       string
+	buildBaseCalls   int
+	buildBaseResult  string
+	baseStatus       *base.Status
+	baseStatusCalls  int
 }
 
 func (a *fakeActions) Status(workspace.LocatedDefinition) (string, error) {
@@ -363,6 +446,11 @@ func (a *fakeActions) BuildBase() (string, error) {
 func (a *fakeActions) Start(item workspace.LocatedDefinition) (string, error) {
 	a.startWorkspace = item.Definition.ID
 	return a.startResult, nil
+}
+func (a *fakeActions) Restart(item workspace.LocatedDefinition, opts docker.UpOptions) (string, error) {
+	a.restartWorkspace = item.Definition.ID
+	a.restartOptions = opts
+	return a.restartResult, nil
 }
 func (a *fakeActions) Up(workspace.LocatedDefinition) (string, error)     { return "", nil }
 func (a *fakeActions) Down(workspace.LocatedDefinition) (string, error)   { return "", nil }
