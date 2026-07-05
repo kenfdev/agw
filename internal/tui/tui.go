@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,8 @@ type Model struct {
 	height        int
 	projectCursor int
 	projects      []workspace.Project
+	actionRunning bool
+	actionName    string
 	quitting      bool
 }
 
@@ -56,6 +59,29 @@ type Actions interface {
 	OpenPath(string) (string, error)
 	EditPath(string) (string, error)
 	CopyText(string) (string, error)
+}
+
+type StreamingActions interface {
+	BuildStream(workspace.LocatedDefinition, io.Writer) (string, error)
+	BuildBaseStream(io.Writer) (string, error)
+	StartStream(workspace.LocatedDefinition, io.Writer) (string, error)
+	RestartStream(workspace.LocatedDefinition, docker.UpOptions, io.Writer) (string, error)
+	UpStream(workspace.LocatedDefinition, io.Writer) (string, error)
+	DownStream(workspace.LocatedDefinition, io.Writer) (string, error)
+}
+
+type actionLogMsg struct {
+	name  string
+	chunk string
+	ch    <-chan tea.Msg
+}
+
+type actionDoneMsg struct {
+	name        string
+	result      string
+	err         error
+	refreshBase bool
+	ch          <-chan tea.Msg
 }
 
 func NewModel(workspaces []workspace.LocatedDefinition) Model {
@@ -97,6 +123,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+	case actionLogMsg:
+		if msg.name == m.actionName {
+			m.status = appendStatus(m.status, msg.chunk)
+		}
+		return m, waitActionMsg(msg.ch)
+	case actionDoneMsg:
+		if msg.name == m.actionName {
+			m.actionRunning = false
+			m.actionName = ""
+			if msg.err != nil {
+				m.status = appendStatus(m.status, msg.name+" failed: "+msg.err.Error())
+			} else {
+				result := msg.result
+				if result == "" {
+					result = msg.name
+				}
+				m.status = appendStatus(m.status, msg.name+" ok: "+result)
+			}
+			if msg.refreshBase {
+				m = m.refreshBaseStatusQuiet()
+			}
+		}
 		return m, nil
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyTab {
@@ -155,8 +204,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m = m.requestShellAndQuit()
 		case "t":
-			m = m.runAction("start", func(item workspace.LocatedDefinition) (string, error) {
+			return m.runAction("start", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Start(item)
+			}, func(actions StreamingActions, item workspace.LocatedDefinition, out io.Writer) (string, error) {
+				return actions.StartStream(item, out)
 			})
 		case "R":
 			m = m.confirmRestart()
@@ -167,17 +218,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m = m.confirmBuild()
 			}
 		case "u":
-			m = m.runAction("up", func(item workspace.LocatedDefinition) (string, error) {
+			return m.runAction("up", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Up(item)
+			}, func(actions StreamingActions, item workspace.LocatedDefinition, out io.Writer) (string, error) {
+				return actions.UpStream(item, out)
 			})
 		case "ctrl+d":
 			m = m.confirmDown()
 		case "a":
 			m = m.requestShellAndQuit()
 		case "p":
-			m = m.runAction("prepare", func(item workspace.LocatedDefinition) (string, error) {
+			return m.runAction("prepare", func(item workspace.LocatedDefinition) (string, error) {
 				return m.actions.Prepare(item)
-			})
+			}, nil)
 		case "r":
 			m = m.refreshFocused()
 		case "l":
@@ -359,6 +412,48 @@ func (m Model) logLines() []string {
 	return displayLines(m.status)
 }
 
+func appendStatus(status, chunk string) string {
+	chunk = strings.TrimRight(chunk, "\n")
+	if chunk == "" {
+		return status
+	}
+	if status == "" {
+		return chunk
+	}
+	return strings.TrimRight(status, "\n") + "\n" + chunk
+}
+
+type actionStreamWriter struct {
+	name string
+	ch   chan tea.Msg
+}
+
+func (w actionStreamWriter) Write(p []byte) (int, error) {
+	chunk := string(append([]byte(nil), p...))
+	w.ch <- actionLogMsg{name: w.name, chunk: chunk, ch: w.ch}
+	return len(p), nil
+}
+
+func startActionStream(name string, refreshBase bool, run func(io.Writer) (string, error)) tea.Cmd {
+	ch := make(chan tea.Msg, 64)
+	go func() {
+		result, err := run(actionStreamWriter{name: name, ch: ch})
+		ch <- actionDoneMsg{name: name, result: result, err: err, refreshBase: refreshBase, ch: ch}
+		close(ch)
+	}()
+	return waitActionMsg(ch)
+}
+
+func waitActionMsg(ch <-chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return actionDoneMsg{}
+		}
+		return msg
+	}
+}
+
 func displayLines(value string) []string {
 	value = sanitizeTerminalContent(value)
 	lines := strings.Split(value, "\n")
@@ -514,30 +609,44 @@ func (m Model) baseDetailsLines() []string {
 	return lines
 }
 
-func (m Model) runAction(name string, run func(workspace.LocatedDefinition) (string, error)) Model {
+func (m Model) runAction(name string, run func(workspace.LocatedDefinition) (string, error), stream func(StreamingActions, workspace.LocatedDefinition, io.Writer) (string, error)) (Model, tea.Cmd) {
 	if m.actions == nil {
 		m.status = name + " failed: no actions configured"
-		return m
+		return m, nil
+	}
+	if m.actionRunning {
+		m.status = appendStatus(m.status, name+" failed: "+m.actionName+" already running")
+		return m, nil
 	}
 	if len(m.workspaces) == 0 {
 		m.status = name + " failed: no workspace selected"
-		return m
+		return m, nil
 	}
 	item, ok := m.selectedWorkspace()
 	if !ok {
 		m.status = name + " failed: no workspace selected"
-		return m
+		return m, nil
+	}
+	if stream != nil {
+		if actions, ok := m.actions.(StreamingActions); ok {
+			m.actionRunning = true
+			m.actionName = name
+			m.status = name + " running..."
+			return m, startActionStream(name, false, func(out io.Writer) (string, error) {
+				return stream(actions, item, out)
+			})
+		}
 	}
 	result, err := run(item)
 	if err != nil {
 		m.status = name + " failed: " + err.Error()
-		return m
+		return m, nil
 	}
 	if result == "" {
 		result = item.Definition.ID
 	}
 	m.status = name + " ok: " + result
-	return m
+	return m, nil
 }
 
 func (m Model) refreshSelectedReport() Model {
@@ -646,8 +755,10 @@ func (m Model) updateConfirmDown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y":
 		m.mode = ""
-		m = m.runAction("down", func(item workspace.LocatedDefinition) (string, error) {
+		return m.runAction("down", func(item workspace.LocatedDefinition) (string, error) {
 			return m.actions.Down(item)
+		}, func(actions StreamingActions, item workspace.LocatedDefinition, out io.Writer) (string, error) {
+			return actions.DownStream(item, out)
 		})
 	case "n", "esc":
 		m.mode = ""
@@ -663,8 +774,10 @@ func (m Model) updateConfirmBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y":
 		m.mode = ""
-		m = m.runAction("build", func(item workspace.LocatedDefinition) (string, error) {
+		return m.runAction("build", func(item workspace.LocatedDefinition) (string, error) {
 			return m.actions.Build(item)
+		}, func(actions StreamingActions, item workspace.LocatedDefinition, out io.Writer) (string, error) {
+			return actions.BuildStream(item, out)
 		})
 	case "n", "esc":
 		m.mode = ""
@@ -680,16 +793,16 @@ func (m Model) updateConfirmRestart(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "r":
 		m.mode = ""
-		m = m.restartWithOptions(docker.UpOptions{})
+		return m.restartWithOptions(docker.UpOptions{})
 	case "f":
 		m.mode = ""
-		m = m.restartWithOptions(docker.UpOptions{ForceRecreate: true})
+		return m.restartWithOptions(docker.UpOptions{ForceRecreate: true})
 	case "b":
 		m.mode = ""
-		m = m.restartWithOptions(docker.UpOptions{Build: true})
+		return m.restartWithOptions(docker.UpOptions{Build: true})
 	case "a":
 		m.mode = ""
-		m = m.restartWithOptions(docker.UpOptions{Build: true, ForceRecreate: true})
+		return m.restartWithOptions(docker.UpOptions{Build: true, ForceRecreate: true})
 	case "n", "esc":
 		m.mode = ""
 		m.status = "restart canceled"
@@ -707,6 +820,18 @@ func (m Model) updateConfirmBaseBuild(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.actions == nil {
 			m.status = "base build failed: no actions configured"
 			return m, nil
+		}
+		if m.actionRunning {
+			m.status = appendStatus(m.status, "base build failed: "+m.actionName+" already running")
+			return m, nil
+		}
+		if actions, ok := m.actions.(StreamingActions); ok {
+			m.actionRunning = true
+			m.actionName = "base build"
+			m.status = "base build running..."
+			return m, startActionStream("base build", true, func(out io.Writer) (string, error) {
+				return actions.BuildBaseStream(out)
+			})
 		}
 		result, err := m.actions.BuildBase()
 		if err != nil {
@@ -908,9 +1033,11 @@ func (m Model) confirmBaseBuildView() string {
 	return baseModel.View() + "\n" + strings.Join(borderedBlock("Confirm", message, modalWidth, 5), "\n")
 }
 
-func (m Model) restartWithOptions(opts docker.UpOptions) Model {
+func (m Model) restartWithOptions(opts docker.UpOptions) (Model, tea.Cmd) {
 	return m.runAction("restart", func(item workspace.LocatedDefinition) (string, error) {
 		return m.actions.Restart(item, opts)
+	}, func(actions StreamingActions, item workspace.LocatedDefinition, out io.Writer) (string, error) {
+		return actions.RestartStream(item, opts, out)
 	})
 }
 

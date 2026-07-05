@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,68 @@ func TestModelConfirmsBuildActionForSelectedWorkspace(t *testing.T) {
 	if !strings.Contains(model.View(), "build ok: built second") {
 		t.Fatalf("view missing action status:\n%s", model.View())
 	}
+}
+
+func TestModelStreamsBuildOutputBeforeCompletion(t *testing.T) {
+	actions := &streamingFakeActions{}
+	model := NewModelWithActions([]workspace.LocatedDefinition{{Definition: workspace.Definition{ID: "agw"}}}, actions)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	model = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("build did not return streaming command")
+	}
+	if !strings.Contains(model.View(), "build running...") {
+		t.Fatalf("view missing running status:\n%s", model.View())
+	}
+
+	updated, cmd = model.Update(cmd())
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "docker build step 1") {
+		t.Fatalf("view missing streamed build output before completion:\n%s", model.View())
+	}
+	if strings.Contains(model.View(), "build ok") {
+		t.Fatalf("build completed before streamed output assertion:\n%s", model.View())
+	}
+
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "build ok: streamed agw") {
+		t.Fatalf("view missing final build status:\n%s", model.View())
+	}
+}
+
+type streamingFakeActions struct {
+	fakeActions
+}
+
+func (a *streamingFakeActions) BuildStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	a.buildWorkspace = item.Definition.ID
+	_, _ = io.WriteString(out, "docker build step 1\n")
+	return "streamed " + item.Definition.ID, nil
+}
+
+func (a *streamingFakeActions) BuildBaseStream(io.Writer) (string, error) {
+	return "", nil
+}
+
+func (a *streamingFakeActions) StartStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	return a.Start(item)
+}
+
+func (a *streamingFakeActions) RestartStream(item workspace.LocatedDefinition, opts docker.UpOptions, out io.Writer) (string, error) {
+	return a.Restart(item, opts)
+}
+
+func (a *streamingFakeActions) UpStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	return a.Up(item)
+}
+
+func (a *streamingFakeActions) DownStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	return a.Down(item)
 }
 
 func TestModelShowsBaseImageInTopBar(t *testing.T) {

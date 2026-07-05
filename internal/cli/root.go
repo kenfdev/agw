@@ -113,6 +113,12 @@ func (a *tuiActions) Build(item workspace.LocatedDefinition) (string, error) {
 	return lifecycleActionResult(item.Definition.ID, output.String()), lifecycleActionError(err, output.String())
 }
 
+func (a *tuiActions) BuildStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	runner := newLifecycleRunner(out, out)
+	err := runner.Build(filepath.Dir(item.Path))
+	return item.Definition.ID, err
+}
+
 func (a *tuiActions) BaseStatus() (*base.Status, error) {
 	return configuredBaseStatus(a.configPath, newLifecycleRunner(io.Discard, io.Discard))
 }
@@ -132,12 +138,35 @@ func (a *tuiActions) BuildBase() (string, error) {
 	return lifecycleActionResult(status.Config.Image, output.String()), nil
 }
 
+func (a *tuiActions) BuildBaseStream(out io.Writer) (string, error) {
+	runner := newLifecycleRunner(out, out)
+	if err := buildConfiguredBaseImage(a.configPath, runner); err != nil {
+		return "", err
+	}
+	status, err := a.BaseStatus()
+	if err != nil {
+		return "", err
+	}
+	if status == nil {
+		return "", nil
+	}
+	return status.Config.Image, nil
+}
+
 func (a *tuiActions) Start(item workspace.LocatedDefinition) (string, error) {
 	runner, output := newCapturedLifecycleRunner()
 	if err := startLocatedWorkspace(output, item, runner, docker.UpOptions{}); err != nil {
 		return "", lifecycleActionError(err, output.String())
 	}
 	return lifecycleActionResult(item.Definition.ID, output.String()), nil
+}
+
+func (a *tuiActions) StartStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	runner := newLifecycleRunner(out, out)
+	if err := startLocatedWorkspace(out, item, runner, docker.UpOptions{}); err != nil {
+		return "", err
+	}
+	return item.Definition.ID, nil
 }
 
 func (a *tuiActions) Restart(item workspace.LocatedDefinition, opts docker.UpOptions) (string, error) {
@@ -148,16 +177,36 @@ func (a *tuiActions) Restart(item workspace.LocatedDefinition, opts docker.UpOpt
 	return lifecycleActionResult(item.Definition.ID, output.String()), nil
 }
 
+func (a *tuiActions) RestartStream(item workspace.LocatedDefinition, opts docker.UpOptions, out io.Writer) (string, error) {
+	runner := newLifecycleRunner(out, out)
+	if err := restartLocatedWorkspace(out, item, runner, opts); err != nil {
+		return "", err
+	}
+	return item.Definition.ID, nil
+}
+
 func (a *tuiActions) Up(item workspace.LocatedDefinition) (string, error) {
 	runner, output := newCapturedLifecycleRunner()
 	err := runner.Up(filepath.Dir(item.Path))
 	return lifecycleActionResult(item.Definition.ID, output.String()), lifecycleActionError(err, output.String())
 }
 
+func (a *tuiActions) UpStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	runner := newLifecycleRunner(out, out)
+	err := runner.Up(filepath.Dir(item.Path))
+	return item.Definition.ID, err
+}
+
 func (a *tuiActions) Down(item workspace.LocatedDefinition) (string, error) {
 	runner, output := newCapturedLifecycleRunner()
 	err := runner.Down(filepath.Dir(item.Path))
 	return lifecycleActionResult(item.Definition.ID, output.String()), lifecycleActionError(err, output.String())
+}
+
+func (a *tuiActions) DownStream(item workspace.LocatedDefinition, out io.Writer) (string, error) {
+	runner := newLifecycleRunner(out, out)
+	err := runner.Down(filepath.Dir(item.Path))
+	return item.Definition.ID, err
 }
 
 func (a *tuiActions) Attach(item workspace.LocatedDefinition) (string, error) {

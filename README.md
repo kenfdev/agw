@@ -305,5 +305,5 @@ Press `R` to choose a confirmed restart mode: restart, force recreate, build,
 or build plus force recreate.
 When a base image is configured, press `tab` to focus the base image summary;
 press `b` to build the focused workspace or base image after confirmation.
-Start, restart, and build output is captured and rendered inside the TUI log
-area instead of streaming raw Docker output over the terminal layout.
+Start, restart, and build output streams into the TUI log area as it arrives
+instead of writing raw Docker output over the terminal layout.
