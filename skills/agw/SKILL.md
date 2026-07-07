@@ -117,7 +117,9 @@ lifecycle:
 
 If projects have explicit lifecycle commands, `agw start` runs each
 `projects[].lifecycle.start` from that project's `hostPath` in project order
-after readiness checks and before starting the AGW sidecar.
+before readiness checks and before starting the AGW sidecar. This lets project
+startup create required external Docker networks before AGW validates and joins
+them.
 `agw start` fails immediately if a project start command fails. `agw stop`
 stops the AGW sidecar first, then runs each `projects[].lifecycle.stop` from
 the project `hostPath` in reverse project order. Project stop failures do not
@@ -196,8 +198,9 @@ Map user intent to CLI use without teaching users to run agent-oriented flags:
 - "Diagnose why this workspace will not start" -> run `doctor --json`, follow
   the reported next action, and use command-specific help before unfamiliar
   operations.
-- "Start my workspace" -> diagnose first when state is unknown, then run configured
-  project lifecycle starts before starting the AGW workspace sidecar.
+- "Start my workspace" -> diagnose first when state is unknown; when starting,
+  run configured project lifecycle starts before readiness checks and before
+  starting the AGW workspace sidecar.
 - "Restart my workspace and rebuild it" -> diagnose if state is unknown, then run
   `agw restart <workspace> --build`.
 
@@ -205,5 +208,5 @@ Map user intent to CLI use without teaching users to run agent-oriented flags:
 
 - If `doctor --json` reports `needs-prepare`, render the agent packet with `agw workspace prepare <workspace> --agent-json` and produce workspace files from its `prompt`.
 - If `doctor` reports `needs-apply`, apply generated workspace files from the chosen generated directory.
-- If `doctor` reports a missing external network, ask the user to start the base project services, configure explicit project lifecycle commands, or remove the network selection. Do not manage those services implicitly.
+- If `doctor` reports a missing external network, ask the user to start the base project services, configure explicit project lifecycle commands, or remove the network selection. During `agw start`, configured project lifecycle starts run before this network check. Do not manage project services implicitly.
 - If the installed `agw` binary disagrees with this repository, prefer the repository command during development and call out the difference.

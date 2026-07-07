@@ -249,6 +249,52 @@ func TestLifecycleStartRunsProjectStartCommandsInProjectOrderBeforeWorkspaceStar
 	}
 }
 
+func TestLifecycleStartRunsProjectStartBeforeExternalNetworkReadinessCheck(t *testing.T) {
+	root := t.TempDir()
+	apiPath := filepath.Join(root, "src", "api")
+	mustMkdirAll(t, apiPath)
+	def := workspace.Definition{
+		ID:        "agw",
+		Workspace: workspace.Workspace{Dir: filepath.Join(root, "workspaces", "agw")},
+		Container: workspace.Container{Service: "dev", Workdir: "/workspace"},
+		Projects: []workspace.Project{
+			{
+				Name:          "api",
+				HostPath:      apiPath,
+				ContainerPath: "/workspace/api",
+				Lifecycle:     workspace.Lifecycle{Start: "docker compose up -d"},
+			},
+		},
+		Networks: &workspace.Networks{
+			Attach: []workspace.NetworkAttachment{{Name: "api_default"}},
+		},
+	}
+	cfgPath, wsPath := mustWriteLifecycleDefinition(t, root, "agw", def)
+	mustWriteStartWorkspaceFilesWithProjectMountsAndNetwork(t, wsPath, "dev", def.Projects, "api_default")
+
+	runner := &lifecycleFakeRunner{
+		networkExists:        map[string]bool{"api_default": false},
+		shellCreatesNetworks: []string{"api_default"},
+	}
+	oldRunner := newLifecycleRunner
+	newLifecycleRunner = func(_ io.Writer, _ io.Writer) lifecycleRunner { return runner }
+	defer func() { newLifecycleRunner = oldRunner }()
+
+	cmd := NewRootCommand("test")
+	cmd.SetArgs([]string{"start", "agw", "--config", cfgPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	wantCalls := []string{
+		"shell:" + apiPath + ":docker compose up -d",
+		"build:" + wsPath,
+		"up-detached:" + wsPath,
+	}
+	if strings.Join(runner.calls, "\n") != strings.Join(wantCalls, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(runner.calls, "\n"), strings.Join(wantCalls, "\n"))
+	}
+}
+
 func TestLifecycleStartFailsBeforeWorkspaceStartWhenProjectStartFails(t *testing.T) {
 	root := t.TempDir()
 	apiPath := filepath.Join(root, "src", "api")
@@ -857,6 +903,21 @@ func mustWriteStartWorkspaceFilesWithProjectMounts(t *testing.T, wsPath, service
 	}
 }
 
+func mustWriteStartWorkspaceFilesWithProjectMountsAndNetwork(t *testing.T, wsPath, service string, projects []workspace.Project, externalNetwork string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(wsPath, "Dockerfile"), []byte("FROM alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	compose := "services:\n  " + service + ":\n    build: .\n    volumes:\n"
+	for _, project := range projects {
+		compose += "      - " + project.HostPath + ":" + project.ContainerPath + "\n"
+	}
+	compose += "    networks:\n      - target\nnetworks:\n  target:\n    external: true\n    name: " + externalNetwork + "\n"
+	if err := os.WriteFile(filepath.Join(wsPath, "compose.yaml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mustWriteLifecycleDefinition(t *testing.T, root, id string, def workspace.Definition) (string, string) {
 	t.Helper()
 	defPath, wsPath := createLifecycleDir(t, root, id)
@@ -928,9 +989,10 @@ type lifecycleFakeRunner struct {
 	inspectImageExists   bool
 	inspectImageErr      error
 
-	networkExists       map[string]bool
-	serviceRunning      bool
-	serviceRunningByDir map[string]bool
+	networkExists        map[string]bool
+	shellCreatesNetworks []string
+	serviceRunning       bool
+	serviceRunningByDir  map[string]bool
 }
 
 func (r *lifecycleFakeRunner) Build(dir string) error {
@@ -991,6 +1053,12 @@ func (r *lifecycleFakeRunner) RunShell(dir string, command string) error {
 		if err := r.shellErrors[dir+"\x00"+command]; err != nil {
 			return err
 		}
+	}
+	for _, network := range r.shellCreatesNetworks {
+		if r.networkExists == nil {
+			r.networkExists = map[string]bool{}
+		}
+		r.networkExists[network] = true
 	}
 	return nil
 }

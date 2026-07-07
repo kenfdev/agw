@@ -91,12 +91,12 @@ func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, r
 		return fmt.Errorf("workspace %q has no service configured", located.Definition.ID)
 	}
 	dir := filepath.Dir(located.Path)
+	if err := runProjectLifecycleStartCommands(runner, located.Definition); err != nil {
+		return err
+	}
 	report := doctor.Diagnose(located, runner)
 	switch report.State {
 	case doctor.StateRunning:
-		if err := runProjectLifecycleStartCommands(runner, located.Definition); err != nil {
-			return err
-		}
 		if upOptions.Build || upOptions.ForceRecreate {
 			if err := runLifecycleStartCommand(runner, located.Definition, dir, upOptions); err != nil {
 				return err
@@ -104,9 +104,6 @@ func startLocatedWorkspace(out io.Writer, located workspace.LocatedDefinition, r
 		}
 		return nil
 	case doctor.StateNotRunning:
-		if err := runProjectLifecycleStartCommands(runner, located.Definition); err != nil {
-			return err
-		}
 		if strings.TrimSpace(located.Definition.Lifecycle.Start) == "" && !upOptions.Build {
 			if err := runner.Build(dir); err != nil {
 				return err

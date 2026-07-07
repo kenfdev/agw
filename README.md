@@ -170,7 +170,9 @@ lifecycle:
 If AGW should start or stop project-owned services around the sidecar
 lifecycle, set project lifecycle commands. `agw start` runs each
 `projects[].lifecycle.start` from that project's `hostPath` in project order
-after readiness checks and before starting the AGW sidecar.
+before readiness checks and before starting the AGW sidecar. This allows a
+project lifecycle command to create an external Docker network that the sidecar
+then joins.
 `agw stop` stops the AGW sidecar first, then runs each
 `projects[].lifecycle.stop` from the project `hostPath` in reverse project
 order:
